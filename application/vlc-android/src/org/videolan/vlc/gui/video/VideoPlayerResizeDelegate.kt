@@ -183,6 +183,9 @@ class VideoPlayerResizeDelegate(private val player: VideoPlayerActivity) {
             MediaPlayer.ScaleType.SURFACE_ORIGINAL -> overlayDelegate.showInfo(R.string.surface_original, 1000, R.string.resize_tip)
         }
         settings.putSingle(VIDEO_RATIO, scale.ordinal)
+        player.videoLayout?.post {
+            player.updateSubtitlePosition()
+        }
     }
 
     /**

@@ -57,6 +57,7 @@ import org.videolan.tools.KEY_SUBTITLES_BACKGROUND
 import org.videolan.tools.KEY_SUBTITLES_BACKGROUND_COLOR
 import org.videolan.tools.KEY_SUBTITLES_BACKGROUND_COLOR_OPACITY
 import org.videolan.tools.KEY_SUBTITLES_BOLD
+import org.videolan.tools.KEY_SUBTITLES_MARGIN
 import org.videolan.tools.KEY_SUBTITLES_COLOR
 import org.videolan.tools.KEY_SUBTITLES_COLOR_OPACITY
 import org.videolan.tools.KEY_SUBTITLES_OUTLINE
@@ -193,6 +194,17 @@ object VLCOptions {
                     options.add("--freetype-outline-color=$freetypeOutlineColor")
                     options.add("--freetype-outline-opacity=$freetypeOutlineOpacity")
             } else options.add("--freetype-outline-opacity=0")
+
+            val subMargin = try {
+                pref.getInt(KEY_SUBTITLES_MARGIN, 0)
+            } catch (e: Exception) {
+                try {
+                    pref.getString(KEY_SUBTITLES_MARGIN, "0")?.toIntOrNull() ?: 0
+                } catch (e2: Exception) {
+                    0
+                }
+            }
+            if (subMargin != 0) options.add("--sub-margin=$subMargin")
 
 
             if (opengl == 1) options.add("--vout=gles2,none")

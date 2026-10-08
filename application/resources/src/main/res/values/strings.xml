@@ -481,6 +481,10 @@
     <string name="subtitles_preset_white_background">With background</string>
     <string name="subtitles_yellow">Yellow</string>
     <string name="subtitles_yellow_background">Yellow with background</string>
+    <string name="subtitles_position">Subtitle position</string>
+    <string name="subtitles_position_saved">Subtitle position saved</string>
+    <string name="subtitles_position_reset">Reset subtitle position</string>
+    <string name="drag_to_move_subtitles">Drag up or down to move subtitles</string>
 
     <string name="audio_prefs_category">Audio</string>
     <string name="lockscreen_cover_title">Media cover on Lockscreen</string>

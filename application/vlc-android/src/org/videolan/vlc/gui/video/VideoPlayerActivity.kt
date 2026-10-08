@@ -87,6 +87,7 @@ import androidx.core.net.toUri
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.core.view.children
 import androidx.databinding.BindingAdapter
 import androidx.fragment.app.DialogFragment
 import androidx.lifecycle.Lifecycle
@@ -153,6 +154,7 @@ import org.videolan.tools.KEY_AUDIO_BOOST
 import org.videolan.tools.KEY_AUDIO_PREFERRED_LANGUAGE
 import org.videolan.tools.KEY_ENABLE_CLONE_MODE
 import org.videolan.tools.KEY_SUBTITLE_PREFERRED_LANGUAGE
+import org.videolan.tools.KEY_SUBTITLES_SURFACE_Y_OFFSET
 import org.videolan.tools.KEY_VIDEO_APP_SWITCH
 import org.videolan.tools.KEY_VIDEO_CONFIRM_RESUME
 import org.videolan.tools.KEY_VIDEO_MATCH_FRAME_RATE
@@ -255,6 +257,7 @@ open class VideoPlayerActivity : AppCompatActivity(), PlaybackService.Callback, 
     var service: PlaybackService? = null
     lateinit var medialibrary: Medialibrary
     var videoLayout: VLCVideoLayout? = null
+    var currentSubtitleUserOffset: Float = 0f
     lateinit var displayManager: DisplayManager
     var rootView: View? = null
     var videoUri: Uri? = null
@@ -535,6 +538,7 @@ open class VideoPlayerActivity : AppCompatActivity(), PlaybackService.Callback, 
         Util.checkCpuCompatibility(this)
 
         settings = Settings.getInstance(this)
+        currentSubtitleUserOffset = settings.getFloat(KEY_SUBTITLES_SURFACE_Y_OFFSET, 0f)
 
         /* Services and miscellaneous */
         audiomanager = applicationContext.getSystemService<AudioManager>()!!
@@ -571,6 +575,9 @@ open class VideoPlayerActivity : AppCompatActivity(), PlaybackService.Callback, 
         }
 
         videoLayout = findViewById(R.id.video_layout)
+        videoLayout?.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            updateSubtitlePosition()
+        }
 
         /* Loading view */
         loadingImageView = findViewById(R.id.player_overlay_loading)
@@ -1052,6 +1059,12 @@ open class VideoPlayerActivity : AppCompatActivity(), PlaybackService.Callback, 
                 mediaPlayer.attachViews(it, displayManager, true, false)
                 val size = if (isBenchmark) MediaPlayer.ScaleType.SURFACE_FILL else MediaPlayer.ScaleType.entries[settings.getInt(VIDEO_RATIO, MediaPlayer.ScaleType.SURFACE_BEST_FIT.ordinal)]
                 mediaPlayer.videoScale = size
+                it.post {
+                    it.findViewById<FrameLayout>(R.id.player_surface_frame)?.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+                        updateSubtitlePosition()
+                    }
+                    updateSubtitlePosition()
+                }
             }
 
             initUI()
@@ -1174,6 +1187,61 @@ open class VideoPlayerActivity : AppCompatActivity(), PlaybackService.Callback, 
             }
         }
 
+    }
+
+    fun hasSubtitles(): Boolean {
+        val s = service ?: return false
+        val track = s.spuTrack
+        return track.isNotEmpty() && track != "-1" && track != "0" && s.spuTracksCount > 0
+    }
+
+    fun getSubtitleSurface(): View? {
+        val frame = videoLayout?.findViewById<FrameLayout>(R.id.player_surface_frame) ?: return null
+        return frame.children.firstOrNull { it.id != R.id.surface_video }
+    }
+
+    fun updateSubtitlePosition() {
+        val frame = videoLayout?.findViewById<FrameLayout>(R.id.player_surface_frame) ?: return
+        val videoSurface = frame.findViewById<View>(R.id.surface_video) ?: return
+        val subtitleSurface = frame.children.firstOrNull { it.id != R.id.surface_video } ?: return
+
+        val containerHeight = frame.height.takeIf { it > 0 } ?: if (::touchDelegate.isInitialized) touchDelegate.screenConfig.yRange else 1080
+        val videoHeight = videoSurface.height.takeIf { it > 0 } ?: containerHeight
+
+        // When video height exceeds the container (e.g. cropped/fill aspect ratio),
+        // calculate bottom overflow that pushed subtitles out of screen
+        val bottomCropOverflow = ((videoHeight - containerHeight) / 2).coerceAtLeast(0)
+
+        // Negative translationY moves subtitles UP into visible area
+        val maxDragUp = -(containerHeight * 0.85f)
+        val targetTranslationY = (-bottomCropOverflow.toFloat() + currentSubtitleUserOffset).coerceIn(maxDragUp, 0f)
+        subtitleSurface.translationY = targetTranslationY
+    }
+
+    fun setSubtitleUserOffset(offset: Float) {
+        val frame = videoLayout?.findViewById<FrameLayout>(R.id.player_surface_frame) ?: return
+        val videoSurface = frame.findViewById<View>(R.id.surface_video) ?: return
+        val subtitleSurface = frame.children.firstOrNull { it.id != R.id.surface_video } ?: return
+
+        val containerHeight = frame.height.takeIf { it > 0 } ?: if (::touchDelegate.isInitialized) touchDelegate.screenConfig.yRange else 1080
+        val videoHeight = videoSurface.height.takeIf { it > 0 } ?: containerHeight
+        val bottomCropOverflow = ((videoHeight - containerHeight) / 2).coerceAtLeast(0)
+
+        currentSubtitleUserOffset = offset
+        val maxDragUp = -(containerHeight * 0.85f)
+        val targetTranslationY = (-bottomCropOverflow.toFloat() + offset).coerceIn(maxDragUp, 0f)
+        subtitleSurface.translationY = targetTranslationY
+    }
+
+    fun saveSubtitleUserOffset() {
+        settings.putSingle(KEY_SUBTITLES_SURFACE_Y_OFFSET, currentSubtitleUserOffset)
+    }
+
+    fun resetSubtitleUserOffset() {
+        currentSubtitleUserOffset = 0f
+        settings.putSingle(KEY_SUBTITLES_SURFACE_Y_OFFSET, 0f)
+        updateSubtitlePosition()
+        overlayDelegate.showInfo(getString(R.string.subtitles_position_reset), 1000)
     }
 
     private fun cleanUI() {
@@ -1588,8 +1656,10 @@ open class VideoPlayerActivity : AppCompatActivity(), PlaybackService.Callback, 
                 }
                 MediaPlayer.Event.Vout -> {
                     updateNavStatus()
-                    if (event.voutCount > 0)
+                    if (event.voutCount > 0) {
                         service.mediaplayer.updateVideoSurfaces()
+                        videoLayout?.post { updateSubtitlePosition() }
+                    }
                     if (menuIdx == -1)
                         handleVout(event.voutCount)
                 }

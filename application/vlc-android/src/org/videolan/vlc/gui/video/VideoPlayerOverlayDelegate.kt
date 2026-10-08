@@ -267,6 +267,7 @@ class VideoPlayerOverlayDelegate (private val player: VideoPlayerActivity) {
                         VideoTracksDialog.VideoTrackOption.SUB_DELAY -> player.delayDelegate.showSubsDelaySetting()
                         VideoTracksDialog.VideoTrackOption.SUB_DOWNLOAD -> downloadSubtitles()
                         VideoTracksDialog.VideoTrackOption.SUB_PICK -> pickSubtitles()
+                        VideoTracksDialog.VideoTrackOption.SUB_POSITION_RESET -> player.resetSubtitleUserOffset()
                     }
                 }, { trackID: String, trackType: VideoTracksDialog.TrackType ->
             when (trackType) {
