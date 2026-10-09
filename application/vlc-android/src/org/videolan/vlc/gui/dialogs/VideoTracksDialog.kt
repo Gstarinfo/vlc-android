@@ -40,6 +40,8 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import org.videolan.libvlc.util.AndroidUtil
 import org.videolan.tools.DependencyProvider
+import org.videolan.tools.KEY_SUBTITLES_DRAGGABLE
+import org.videolan.tools.Settings
 import org.videolan.tools.dp
 import org.videolan.tools.setGone
 import org.videolan.tools.setVisible
@@ -164,8 +166,11 @@ class VideoTracksDialog : VLCBottomSheetDialogFragment() {
         generateOptionItem(binding.subtitleTracks.options, getString(R.string.spu_delay), R.drawable.ic_delay, VideoTrackOption.SUB_DELAY)
         generateOptionItem(binding.subtitleTracks.options, getString(R.string.subtitle_select), R.drawable.ic_subtitles_file, VideoTrackOption.SUB_PICK)
         if (VlcMigrationHelper.isLolliPopOrLater) generateOptionItem(binding.subtitleTracks.options, getString(R.string.download_subtitles), R.drawable.ic_download_subtitles, VideoTrackOption.SUB_DOWNLOAD)
-        generateOptionItem(binding.subtitleTracks.options, getString(R.string.adjust_subtitle_position), R.drawable.ic_subtitles, VideoTrackOption.SUB_POSITION_ADJUST)
-        generateOptionItem(binding.subtitleTracks.options, getString(R.string.subtitles_position_reset), R.drawable.ic_reset, VideoTrackOption.SUB_POSITION_RESET)
+        val isDraggable = Settings.getInstance(requireActivity()).getBoolean(KEY_SUBTITLES_DRAGGABLE, true)
+        if (isDraggable) {
+            generateOptionItem(binding.subtitleTracks.options, getString(R.string.adjust_subtitle_position), R.drawable.ic_subtitles, VideoTrackOption.SUB_POSITION_ADJUST)
+            generateOptionItem(binding.subtitleTracks.options, getString(R.string.subtitles_position_reset), R.drawable.ic_reset, VideoTrackOption.SUB_POSITION_RESET)
+        }
         generateSeparator(binding.subtitleTracks.options, true)
         binding.subtitleTracks.options.setAnimationUpdateListener {
             binding.subtitleTracks.trackMore.rotation = if (binding.subtitleTracks.options.isCollapsed) 180F - (180F * it) else 180F * it

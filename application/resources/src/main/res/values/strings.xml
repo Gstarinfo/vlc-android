@@ -493,6 +493,14 @@
     <string name="subtitle_position_done">Done</string>
     <string name="subtitles_position_default">Default</string>
     <string name="subtitles_reset_action">Reset</string>
+    <string name="subtitles_position_category">Subtitle position &amp; adjustment</string>
+    <string name="subtitles_draggable_title">Adjust subtitle position</string>
+    <string name="subtitles_draggable_summary">Allow dragging subtitles vertically and using on-screen position controls</string>
+    <string name="subtitles_default_position_title">Default position</string>
+    <string name="subtitles_default_position_bottom">Bottom (Default)</string>
+    <string name="subtitles_default_position_middle">Center</string>
+    <string name="subtitles_default_position_top">Top</string>
+    <string name="subtitles_position_disabled_info">Subtitle positioning is disabled in Settings</string>
 
     <string name="audio_prefs_category">Audio</string>
     <string name="lockscreen_cover_title">Media cover on Lockscreen</string>

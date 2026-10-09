@@ -396,6 +396,8 @@ const val KEY_SUBTITLES_SHADOW_COLOR_OPACITY = "subtitles_shadow_color_opacity"
 const val KEY_SUBTITLES_AUTOLOAD = "subtitles_autoload"
 const val KEY_SUBTITLES_MARGIN = "subtitles_margin"
 const val KEY_SUBTITLES_SURFACE_Y_OFFSET = "subtitles_surface_y_offset"
+const val KEY_SUBTITLES_DRAGGABLE = "subtitles_draggable"
+const val KEY_SUBTITLES_DEFAULT_POSITION = "subtitles_default_position"
 const val KEY_OPENGL = "opengl"
 
 //Control settings

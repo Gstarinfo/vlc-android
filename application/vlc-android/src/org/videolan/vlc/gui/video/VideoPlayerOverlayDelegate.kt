@@ -271,7 +271,13 @@ class VideoPlayerOverlayDelegate (private val player: VideoPlayerActivity) {
                         VideoTracksDialog.VideoTrackOption.SUB_DELAY -> player.delayDelegate.showSubsDelaySetting()
                         VideoTracksDialog.VideoTrackOption.SUB_DOWNLOAD -> downloadSubtitles()
                         VideoTracksDialog.VideoTrackOption.SUB_PICK -> pickSubtitles()
-                        VideoTracksDialog.VideoTrackOption.SUB_POSITION_ADJUST -> showSubtitleEditor()
+                        VideoTracksDialog.VideoTrackOption.SUB_POSITION_ADJUST -> {
+                            if (player.isSubtitleDragEnabled) {
+                                showSubtitleEditor()
+                            } else {
+                                showInfo(player.getString(R.string.subtitles_position_disabled_info), 1500)
+                            }
+                        }
                         VideoTracksDialog.VideoTrackOption.SUB_POSITION_RESET -> player.resetSubtitleUserOffset(animated = true)
                     }
                 }, { trackID: String, trackType: VideoTracksDialog.TrackType ->
@@ -409,7 +415,7 @@ class VideoPlayerOverlayDelegate (private val player: VideoPlayerActivity) {
     }
 
     fun showSubtitleEditor(fromTouch: Boolean = false) {
-        if (player.isInPictureInPictureMode) return
+        if (player.isInPictureInPictureMode || !player.isSubtitleDragEnabled) return
         initSubtitleEditorOverlay()
         isSubtitleEditorActive = true
         hideOverlay(true)
@@ -470,7 +476,12 @@ class VideoPlayerOverlayDelegate (private val player: VideoPlayerActivity) {
 
             guide?.let { it.translationY = baselineY - it.top }
             label?.let { it.translationY = (baselineY - 4.dp.toFloat()) - it.bottom }
-            ghostBox.translationY = (baselineY + subsTranslationY) - ghostBox.bottom
+            val targetGhostTranslationY = (baselineY + subsTranslationY) - ghostBox.bottom
+            val clampedGhostTranslationY = targetGhostTranslationY.coerceIn(
+                (50.dp.toFloat() - ghostBox.bottom),
+                (root.height.toFloat() - 40.dp.toFloat() - ghostBox.bottom)
+            )
+            ghostBox.translationY = clampedGhostTranslationY
         } else {
             subtitleGhostBox?.translationY = player.currentSubtitleUserOffset
         }
