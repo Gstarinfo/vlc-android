@@ -40,6 +40,20 @@
                 android:summary="@string/preferred_resolution_summary"
                 android:title="@string/preferred_resolution"/>
 
+    <PreferenceCategory
+            android:title="@string/controls_prefs_category"
+            android:key="video_controls_category">
+        <CheckBoxPreference
+                app:singleLineTitle="false"
+                android:defaultValue="true"
+                android:key="enable_scale_gesture"
+                android:summary="@string/enable_scale_gesture_summary"
+                android:title="@string/enable_scale_gesture_title"/>
+        <Preference
+                android:title="@string/controls_setting"
+                android:key="video_controls_detail"
+                android:summary="@string/controls_prefs_category"/>
+    </PreferenceCategory>
 
     <PreferenceCategory
             android:title="@string/interface_secondary_display_category_title"

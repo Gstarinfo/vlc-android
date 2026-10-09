@@ -192,6 +192,10 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
                 return true
             }
             else -> {
+                if (event.pointerCount > 1) {
+                    handler.removeCallbacks(fastPlayRunnable)
+                    handler.removeCallbacks(subtitleDragRunnable)
+                }
                 if (!player.isLocked && touchAction != TOUCH_FASTPLAY) {
                     scaleGestureDetector.onTouchEvent(event)
                     if (scaleGestureDetector.isInProgress) {
@@ -365,7 +369,13 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
                             return true
                         }
                         val touchSlop = ViewConfiguration.get(player).scaledTouchSlop
-                        if (touchAction == TOUCH_IGNORE) touchAction = TOUCH_NONE
+                        if (touchAction == TOUCH_IGNORE) {
+                            touchAction = TOUCH_NONE
+                            numberOfTaps = 0
+                            touchX = -1f
+                            touchY = -1f
+                            return true
+                        }
 
                         // Mouse events for the core
                         player.sendMouseEvent(MotionEvent.ACTION_UP, xTouch, yTouch)
@@ -613,9 +623,19 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
 
     private val mScaleListener = object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
 
-        private var savedScale: MediaPlayer.ScaleType? = null
+        private var accumulatedScale = 1.0f
+        private var scaleTriggered = false
+        private var scaleSurfaceFrame: FrameLayout? = null
+
         override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
             if (touchControls and TOUCH_FLAG_SCALE != TOUCH_FLAG_SCALE) return false
+            if (player.isLocked || touchAction == TOUCH_FASTPLAY) return false
+            handler.removeCallbacks(fastPlayRunnable)
+            handler.removeCallbacks(subtitleDragRunnable)
+            if (touchAction == TOUCH_SUBTITLE_POSITION) touchAction = TOUCH_NONE
+            accumulatedScale = 1.0f
+            scaleTriggered = false
+            scaleSurfaceFrame = player.videoLayout?.findViewById(R.id.player_surface_frame)
             return screenConfig.xRange != 0 || player.fov == 0f
         }
 
@@ -626,23 +646,79 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
                     player.fov = (player.fov + diff).coerceIn(MIN_FOV, MAX_FOV)
                     return true
                 }
+            } else if (player.fov == 0f && !player.isLocked && (touchControls and TOUCH_FLAG_SCALE == TOUCH_FLAG_SCALE) && touchAction != TOUCH_FASTPLAY) {
+                val factor = detector.scaleFactor
+                accumulatedScale *= factor
+                scaleSurfaceFrame?.let { frame ->
+                    val current = (frame.scaleX * factor).coerceIn(0.75f, 1.35f)
+                    frame.scaleX = current
+                    frame.scaleY = current
+                }
+                if (accumulatedScale >= 1.22f) {
+                    zoomInAspect()
+                    accumulatedScale = 1.0f
+                    scaleTriggered = true
+                    scaleSurfaceFrame?.animate()?.scaleX(1.0f)?.scaleY(1.0f)?.setDuration(150L)?.start()
+                    player.window.decorView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                } else if (accumulatedScale <= 0.82f) {
+                    zoomOutAspect()
+                    accumulatedScale = 1.0f
+                    scaleTriggered = true
+                    scaleSurfaceFrame?.animate()?.scaleX(1.0f)?.scaleY(1.0f)?.setDuration(150L)?.start()
+                    player.window.decorView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                }
+                return true
             }
             return false
         }
 
         override fun onScaleEnd(detector: ScaleGestureDetector) {
             if (player.fov == 0f && !player.isLocked && (touchControls and TOUCH_FLAG_SCALE == TOUCH_FLAG_SCALE) && touchAction != TOUCH_FASTPLAY) {
-                val grow = detector.scaleFactor > 1.0f
-                if (grow && player.currentScaleType != MediaPlayer.ScaleType.SURFACE_FIT_SCREEN) {
-                    savedScale = player.currentScaleType
-                    resizeDelegate.setVideoScale(MediaPlayer.ScaleType.SURFACE_FIT_SCREEN)
-                } else if (!grow && savedScale != null) {
-                    resizeDelegate.setVideoScale(savedScale!!)
-                    savedScale = null
-                } else if (!grow && player.currentScaleType == MediaPlayer.ScaleType.SURFACE_FIT_SCREEN) {
-                    resizeDelegate.setVideoScale(MediaPlayer.ScaleType.SURFACE_BEST_FIT)
+                if (!scaleTriggered) {
+                    if (accumulatedScale >= 1.10f) {
+                        zoomInAspect()
+                        player.window.decorView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    } else if (accumulatedScale <= 0.90f) {
+                        zoomOutAspect()
+                        player.window.decorView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    }
                 }
-                touchAction = TOUCH_NONE
+                scaleSurfaceFrame?.animate()?.scaleX(1.0f)?.scaleY(1.0f)?.setDuration(200L)?.start()
+                accumulatedScale = 1.0f
+                scaleTriggered = false
+                touchAction = TOUCH_IGNORE
+            }
+        }
+
+        private fun zoomInAspect() {
+            val current = player.currentScaleType
+            val next = when (current) {
+                MediaPlayer.ScaleType.SURFACE_BEST_FIT -> MediaPlayer.ScaleType.SURFACE_FIT_SCREEN
+                MediaPlayer.ScaleType.SURFACE_FIT_SCREEN -> MediaPlayer.ScaleType.SURFACE_FILL
+                MediaPlayer.ScaleType.SURFACE_FILL -> MediaPlayer.ScaleType.SURFACE_16_9
+                MediaPlayer.ScaleType.SURFACE_16_9 -> MediaPlayer.ScaleType.SURFACE_2_1
+                MediaPlayer.ScaleType.SURFACE_2_1 -> MediaPlayer.ScaleType.SURFACE_ORIGINAL
+                MediaPlayer.ScaleType.SURFACE_ORIGINAL -> MediaPlayer.ScaleType.SURFACE_ORIGINAL
+                else -> MediaPlayer.ScaleType.SURFACE_FILL
+            }
+            if (next != current) {
+                resizeDelegate.setVideoScale(next)
+            }
+        }
+
+        private fun zoomOutAspect() {
+            val current = player.currentScaleType
+            val prev = when (current) {
+                MediaPlayer.ScaleType.SURFACE_ORIGINAL -> MediaPlayer.ScaleType.SURFACE_2_1
+                MediaPlayer.ScaleType.SURFACE_2_1 -> MediaPlayer.ScaleType.SURFACE_16_9
+                MediaPlayer.ScaleType.SURFACE_16_9 -> MediaPlayer.ScaleType.SURFACE_FILL
+                MediaPlayer.ScaleType.SURFACE_FILL -> MediaPlayer.ScaleType.SURFACE_FIT_SCREEN
+                MediaPlayer.ScaleType.SURFACE_FIT_SCREEN -> MediaPlayer.ScaleType.SURFACE_BEST_FIT
+                MediaPlayer.ScaleType.SURFACE_BEST_FIT -> MediaPlayer.ScaleType.SURFACE_BEST_FIT
+                else -> MediaPlayer.ScaleType.SURFACE_BEST_FIT
+            }
+            if (prev != current) {
+                resizeDelegate.setVideoScale(prev)
             }
         }
     }

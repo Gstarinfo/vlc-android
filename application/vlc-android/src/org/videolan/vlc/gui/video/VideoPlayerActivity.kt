@@ -961,6 +961,9 @@ open class VideoPlayerActivity : AppCompatActivity(), PlaybackService.Callback, 
     override fun onStart() {
         medialibrary.pauseBackgroundOperations()
         super.onStart()
+        if (::touchDelegate.isInitialized) {
+            touchDelegate.touchControls = generateTouchFlags()
+        }
         isSubtitleDragEnabled = settings.getBoolean(KEY_SUBTITLES_DRAGGABLE, true)
         val defaultOffsetRatio = getDefaultSubtitleOffsetRatio()
         if (!isSubtitleDragEnabled || !settings.contains(KEY_SUBTITLES_SURFACE_Y_OFFSET)) {

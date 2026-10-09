@@ -79,4 +79,12 @@ class PreferencesVideo : BasePreferenceFragment(), SharedPreferences.OnSharedPre
             }
         }
     }
+
+    override fun onPreferenceTreeClick(preference: androidx.preference.Preference): Boolean {
+        if (preference.key == "video_controls_detail") {
+            loadFragment(PreferencesVideoControls())
+            return true
+        }
+        return super.onPreferenceTreeClick(preference)
+    }
 }
