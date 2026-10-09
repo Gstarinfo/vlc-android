@@ -1197,13 +1197,15 @@ open class VideoPlayerActivity : AppCompatActivity(), PlaybackService.Callback, 
 
     fun getSubtitleSurface(): View? {
         val frame = videoLayout?.findViewById<FrameLayout>(R.id.player_surface_frame) ?: return null
-        return frame.children.firstOrNull { it.id != R.id.surface_video }
+        return frame.findViewById<View>(R.id.surface_subtitles)
+            ?: frame.children.firstOrNull { it.id != R.id.surface_video && it !is android.view.ViewStub }
+            ?: frame.findViewById<View>(R.id.surface_video)
     }
 
     fun updateSubtitlePosition() {
         val frame = videoLayout?.findViewById<FrameLayout>(R.id.player_surface_frame) ?: return
-        val videoSurface = frame.findViewById<View>(R.id.surface_video) ?: return
-        val subtitleSurface = frame.children.firstOrNull { it.id != R.id.surface_video } ?: return
+        val videoSurface = frame.findViewById<View>(R.id.surface_video) ?: frame.findViewById<View>(R.id.texture_video) ?: return
+        val subtitleSurface = getSubtitleSurface() ?: return
 
         val containerHeight = frame.height.takeIf { it > 0 } ?: if (::touchDelegate.isInitialized) touchDelegate.screenConfig.yRange else 1080
         val videoHeight = videoSurface.height.takeIf { it > 0 } ?: containerHeight
@@ -1212,16 +1214,17 @@ open class VideoPlayerActivity : AppCompatActivity(), PlaybackService.Callback, 
         // calculate bottom overflow that pushed subtitles out of screen
         val bottomCropOverflow = ((videoHeight - containerHeight) / 2).coerceAtLeast(0)
 
-        // Negative translationY moves subtitles UP into visible area
+        // Translation moves subtitles: negative moves UP, positive moves DOWN
         val maxDragUp = -(containerHeight * 0.85f)
-        val targetTranslationY = (-bottomCropOverflow.toFloat() + currentSubtitleUserOffset).coerceIn(maxDragUp, 0f)
+        val maxDragDown = containerHeight * 0.25f
+        val targetTranslationY = (-bottomCropOverflow.toFloat() + currentSubtitleUserOffset).coerceIn(maxDragUp, maxDragDown)
         subtitleSurface.translationY = targetTranslationY
     }
 
     fun setSubtitleUserOffset(offset: Float) {
         val frame = videoLayout?.findViewById<FrameLayout>(R.id.player_surface_frame) ?: return
-        val videoSurface = frame.findViewById<View>(R.id.surface_video) ?: return
-        val subtitleSurface = frame.children.firstOrNull { it.id != R.id.surface_video } ?: return
+        val videoSurface = frame.findViewById<View>(R.id.surface_video) ?: frame.findViewById<View>(R.id.texture_video) ?: return
+        val subtitleSurface = getSubtitleSurface() ?: return
 
         val containerHeight = frame.height.takeIf { it > 0 } ?: if (::touchDelegate.isInitialized) touchDelegate.screenConfig.yRange else 1080
         val videoHeight = videoSurface.height.takeIf { it > 0 } ?: containerHeight
@@ -1229,7 +1232,8 @@ open class VideoPlayerActivity : AppCompatActivity(), PlaybackService.Callback, 
 
         currentSubtitleUserOffset = offset
         val maxDragUp = -(containerHeight * 0.85f)
-        val targetTranslationY = (-bottomCropOverflow.toFloat() + offset).coerceIn(maxDragUp, 0f)
+        val maxDragDown = containerHeight * 0.25f
+        val targetTranslationY = (-bottomCropOverflow.toFloat() + offset).coerceIn(maxDragUp, maxDragDown)
         subtitleSurface.translationY = targetTranslationY
     }
 

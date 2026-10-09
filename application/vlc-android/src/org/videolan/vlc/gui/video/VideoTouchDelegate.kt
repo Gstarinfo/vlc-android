@@ -97,6 +97,7 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
     private var savedRate: Float = 1f
     private var initialDragY = 0f
     private var initialSubtitleOffset = 0f
+    private var subtitleDragged = false
 
     private val fastPlayRunnable = Runnable {
         if (touchAction == TOUCH_NONE && player.service != null) {
@@ -112,9 +113,10 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
         if (touchAction == TOUCH_NONE && player.service != null) {
             handler.removeCallbacks(fastPlayRunnable)
             touchAction = TOUCH_SUBTITLE_POSITION
+            subtitleDragged = false
             player.window.decorView.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
             player.overlayDelegate.hideOverlay(fromUser = true)
-            initialDragY = touchY
+            initialDragY = if (touchY != -1f) touchY else initTouchY
             initialSubtitleOffset = player.currentSubtitleUserOffset
             player.overlayDelegate.showInfo(
                 player.getString(R.string.subtitles_position),
@@ -237,6 +239,9 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
                     MotionEvent.ACTION_MOVE -> {
                         if (touchAction == TOUCH_SUBTITLE_POSITION) {
                             val dragDeltaY = event.y - initialDragY
+                            if (dragDeltaY.absoluteValue > 3f) {
+                                subtitleDragged = true
+                            }
                             val newOffset = initialSubtitleOffset + dragDeltaY
                             player.setSubtitleUserOffset(newOffset)
                             val displayOffsetPx = -newOffset.roundToInt()
@@ -249,7 +254,9 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
                             return true
                         }
                         val touchSlop = ViewConfiguration.get(player).scaledTouchSlop
-                        if ((event.y - initTouchY).absoluteValue > touchSlop || (event.x - initTouchX).absoluteValue > touchSlop) {
+                        val isNearSubs = initTouchY >= screenConfig.metrics.heightPixels.toFloat() * 0.65f && player.hasSubtitles()
+                        val slopTolerance = if (isNearSubs) touchSlop * 2.5f else touchSlop.toFloat()
+                        if ((event.y - initTouchY).absoluteValue > slopTolerance || (event.x - initTouchX).absoluteValue > slopTolerance) {
                             handler.removeCallbacks(subtitleDragRunnable)
                             handler.removeCallbacks(fastPlayRunnable)
                         }
@@ -291,11 +298,13 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
                         handler.removeCallbacks(fastPlayRunnable)
                         if (touchAction == TOUCH_SUBTITLE_POSITION) {
                             touchAction = TOUCH_NONE
-                            player.saveSubtitleUserOffset()
-                            player.overlayDelegate.showInfo(
-                                player.getString(R.string.subtitles_position_saved),
-                                1000
-                            )
+                            if (subtitleDragged) {
+                                player.saveSubtitleUserOffset()
+                                player.overlayDelegate.showInfo(
+                                    player.getString(R.string.subtitles_position_saved),
+                                    1000
+                                )
+                            }
                             return true
                         }
                         // FastPlay
