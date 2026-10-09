@@ -485,6 +485,14 @@
     <string name="subtitles_position_saved">Subtitle position saved</string>
     <string name="subtitles_position_reset">Reset subtitle position</string>
     <string name="drag_to_move_subtitles">Drag up or down to move subtitles</string>
+    <string name="adjust_subtitle_position">Adjust subtitle position</string>
+    <string name="subtitle_position_top">Top</string>
+    <string name="subtitle_position_middle">Middle</string>
+    <string name="subtitle_position_bottom">Bottom</string>
+    <string name="subtitle_drag_hint">Drag up or down to adjust</string>
+    <string name="subtitle_position_done">Done</string>
+    <string name="subtitles_position_default">Default</string>
+    <string name="subtitles_reset_action">Reset</string>
 
     <string name="audio_prefs_category">Audio</string>
     <string name="lockscreen_cover_title">Media cover on Lockscreen</string>

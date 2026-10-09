@@ -27,6 +27,10 @@ package org.videolan.vlc.gui.video
 import android.animation.Animator
 import android.annotation.SuppressLint
 import android.annotation.TargetApi
+import android.graphics.Color
+import androidx.core.view.isVisible
+import kotlin.math.absoluteValue
+import kotlin.math.roundToInt
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
@@ -267,7 +271,8 @@ class VideoPlayerOverlayDelegate (private val player: VideoPlayerActivity) {
                         VideoTracksDialog.VideoTrackOption.SUB_DELAY -> player.delayDelegate.showSubsDelaySetting()
                         VideoTracksDialog.VideoTrackOption.SUB_DOWNLOAD -> downloadSubtitles()
                         VideoTracksDialog.VideoTrackOption.SUB_PICK -> pickSubtitles()
-                        VideoTracksDialog.VideoTrackOption.SUB_POSITION_RESET -> player.resetSubtitleUserOffset()
+                        VideoTracksDialog.VideoTrackOption.SUB_POSITION_ADJUST -> showSubtitleEditor()
+                        VideoTracksDialog.VideoTrackOption.SUB_POSITION_RESET -> player.resetSubtitleUserOffset(animated = true)
                     }
                 }, { trackID: String, trackType: VideoTracksDialog.TrackType ->
             when (trackType) {
@@ -346,6 +351,99 @@ class VideoPlayerOverlayDelegate (private val player: VideoPlayerActivity) {
                     player, android.R.anim.fade_out))
             view.setInvisible()
         }
+    }
+
+    private var subtitleEditorRoot: View? = null
+    private var subtitleEditorPill: View? = null
+    private var subtitleGhostBox: View? = null
+    private var subtitleBaselineGuide: View? = null
+    private var subtitleEditorOffsetTextView: TextView? = null
+    var isSubtitleEditorActive: Boolean = false
+        private set
+
+    fun isSubtitleEditorVisible(): Boolean = subtitleEditorRoot?.isVisible == true
+
+    fun initSubtitleEditorOverlay() {
+        if (subtitleEditorRoot != null) return
+        val vsc = player.findViewById<ViewStubCompat>(R.id.player_subtitle_editor_stub)
+        if (vsc != null) {
+            vsc.setVisible()
+            subtitleEditorRoot = player.findViewById(R.id.subtitle_editor_root)
+            subtitleEditorPill = player.findViewById(R.id.subtitle_editor_pill)
+            subtitleGhostBox = player.findViewById(R.id.subtitle_ghost_box)
+            subtitleBaselineGuide = player.findViewById(R.id.subtitle_baseline_guide)
+            subtitleEditorOffsetTextView = player.findViewById(R.id.subtitle_editor_offset_text)
+
+            player.findViewById<View>(R.id.subtitle_btn_up)?.setOnClickListener {
+                val containerH = player.getSubtitleContainerHeight()
+                val stepRatio = if (containerH > 0) 10f / containerH else 0.01f
+                player.setSubtitleOffsetRatio(player.currentSubtitleUserOffsetRatio - stepRatio, animated = false)
+            }
+
+            player.findViewById<View>(R.id.subtitle_btn_down)?.setOnClickListener {
+                val containerH = player.getSubtitleContainerHeight()
+                val stepRatio = if (containerH > 0) 10f / containerH else 0.01f
+                player.setSubtitleOffsetRatio(player.currentSubtitleUserOffsetRatio + stepRatio, animated = false)
+            }
+
+            player.findViewById<View>(R.id.subtitle_btn_reset)?.setOnClickListener {
+                player.resetSubtitleUserOffset(animated = true)
+            }
+
+            player.findViewById<View>(R.id.subtitle_btn_done)?.setOnClickListener {
+                hideSubtitleEditor()
+            }
+
+            player.findViewById<View>(R.id.chip_preset_bottom)?.setOnClickListener {
+                player.setSubtitleOffsetRatio(0f, animated = true)
+            }
+
+            player.findViewById<View>(R.id.chip_preset_middle)?.setOnClickListener {
+                player.setSubtitleOffsetRatio(-0.35f, animated = true)
+            }
+
+            player.findViewById<View>(R.id.chip_preset_top)?.setOnClickListener {
+                player.setSubtitleOffsetRatio(-0.70f, animated = true)
+            }
+        }
+    }
+
+    fun showSubtitleEditor(fromTouch: Boolean = false) {
+        if (player.isInPictureInPictureMode) return
+        initSubtitleEditorOverlay()
+        isSubtitleEditorActive = true
+        hideOverlay(true)
+        hideInfo()
+
+        subtitleEditorRoot?.setVisible()
+        subtitleEditorPill?.setVisible()
+        subtitleBaselineGuide?.setVisible()
+        subtitleGhostBox?.setVisible()
+
+        updateSubtitleEditor(
+            player.currentSubtitleUserOffset.roundToInt(),
+            player.currentSubtitleUserOffsetRatio,
+            isSnapped = player.currentSubtitleUserOffsetRatio.absoluteValue < 0.015f
+        )
+    }
+
+    fun updateSubtitleEditor(offsetPx: Int, ratio: Float, isSnapped: Boolean) {
+        val offsetTv = subtitleEditorOffsetTextView ?: return
+        val offsetDisplay = -offsetPx
+        offsetTv.text = when {
+            isSnapped || offsetPx == 0 -> player.getString(R.string.subtitles_position_default)
+            offsetDisplay > 0 -> "+$offsetDisplay px"
+            else -> "$offsetDisplay px"
+        }
+        offsetTv.setTextColor(if (isSnapped || offsetPx == 0) ContextCompat.getColor(player, R.color.orange500) else Color.WHITE)
+
+        subtitleGhostBox?.translationY = player.currentSubtitleUserOffset
+    }
+
+    fun hideSubtitleEditor() {
+        isSubtitleEditorActive = false
+        subtitleEditorRoot?.setGone()
+        player.saveSubtitleUserOffset()
     }
 
     fun initInfoOverlay() {
@@ -444,6 +542,7 @@ class VideoPlayerOverlayDelegate (private val player: VideoPlayerActivity) {
         player.service?.let { service ->
             if (player.tipsDelegate.currentTip != null) return
             if (player.isInPictureInPictureMode) return
+            if (isSubtitleEditorActive) hideSubtitleEditor()
             initOverlay()
             if (!::hudBinding.isInitialized) return
             overlayTimeout = when {

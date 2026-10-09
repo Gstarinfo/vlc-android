@@ -245,8 +245,11 @@ import org.videolan.vlc.viewmodels.PlaylistModel
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
+import kotlin.math.absoluteValue
 import kotlin.math.roundToInt
-
+import android.animation.ValueAnimator
+import android.view.animation.AccelerateDecelerateInterpolator
+import androidx.core.animation.doOnEnd
 
 open class VideoPlayerActivity : AppCompatActivity(), PlaybackService.Callback, PlaylistAdapter.IPlayer, OnClickListener, OnLongClickListener, StoragePermissionsDelegate.CustomActionController, TextWatcher, IDialogManager, KeycodeListener {
 
@@ -257,7 +260,14 @@ open class VideoPlayerActivity : AppCompatActivity(), PlaybackService.Callback, 
     var service: PlaybackService? = null
     lateinit var medialibrary: Medialibrary
     var videoLayout: VLCVideoLayout? = null
-    var currentSubtitleUserOffset: Float = 0f
+    var currentSubtitleUserOffsetRatio: Float = 0f
+    var currentSubtitleUserOffset: Float
+        get() = currentSubtitleUserOffsetRatio * getSubtitleContainerHeight()
+        set(value) {
+            val containerH = getSubtitleContainerHeight()
+            currentSubtitleUserOffsetRatio = if (containerH > 0) (value / containerH).coerceIn(-0.80f, 0.20f) else 0f
+        }
+    private var subtitleOffsetAnimator: ValueAnimator? = null
     lateinit var displayManager: DisplayManager
     var rootView: View? = null
     var videoUri: Uri? = null
@@ -538,7 +548,12 @@ open class VideoPlayerActivity : AppCompatActivity(), PlaybackService.Callback, 
         Util.checkCpuCompatibility(this)
 
         settings = Settings.getInstance(this)
-        currentSubtitleUserOffset = settings.getFloat(KEY_SUBTITLES_SURFACE_Y_OFFSET, 0f)
+        val savedSubtitleOffset = settings.getFloat(KEY_SUBTITLES_SURFACE_Y_OFFSET, 0f)
+        currentSubtitleUserOffsetRatio = if (savedSubtitleOffset.absoluteValue > 1.0f) {
+            savedSubtitleOffset / 1080f
+        } else {
+            savedSubtitleOffset
+        }.coerceIn(-0.80f, 0.20f)
 
         /* Services and miscellaneous */
         audiomanager = applicationContext.getSystemService<AudioManager>()!!
@@ -665,7 +680,9 @@ open class VideoPlayerActivity : AppCompatActivity(), PlaybackService.Callback, 
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (optionsDelegate?.isShowing() == true) {
+                if (overlayDelegate.isSubtitleEditorActive) {
+                    overlayDelegate.hideSubtitleEditor()
+                } else if (optionsDelegate?.isShowing() == true) {
                     optionsDelegate?.hide()
                 } else if (resizeDelegate.isShowing()) {
                     resizeDelegate.hideResizeOverlay()
@@ -1195,11 +1212,16 @@ open class VideoPlayerActivity : AppCompatActivity(), PlaybackService.Callback, 
         return track.isNotEmpty() && track != "-1" && track != "0" && s.spuTracksCount > 0
     }
 
+    fun getSubtitleContainerHeight(): Float {
+        val frame = videoLayout?.findViewById<FrameLayout>(R.id.player_surface_frame)
+        val h = frame?.height?.toFloat()?.takeIf { it > 0 }
+        return h ?: if (::touchDelegate.isInitialized) touchDelegate.screenConfig.yRange.toFloat() else 1080f
+    }
+
     fun getSubtitleSurface(): View? {
         val frame = videoLayout?.findViewById<FrameLayout>(R.id.player_surface_frame) ?: return null
         return frame.findViewById<View>(R.id.surface_subtitles)
             ?: frame.children.firstOrNull { it.id != R.id.surface_video && it !is android.view.ViewStub }
-            ?: frame.findViewById<View>(R.id.surface_video)
     }
 
     fun updateSubtitlePosition() {
@@ -1207,17 +1229,17 @@ open class VideoPlayerActivity : AppCompatActivity(), PlaybackService.Callback, 
         val videoSurface = frame.findViewById<View>(R.id.surface_video) ?: frame.findViewById<View>(R.id.texture_video) ?: return
         val subtitleSurface = getSubtitleSurface() ?: return
 
-        val containerHeight = frame.height.takeIf { it > 0 } ?: if (::touchDelegate.isInitialized) touchDelegate.screenConfig.yRange else 1080
-        val videoHeight = videoSurface.height.takeIf { it > 0 } ?: containerHeight
+        val containerHeight = getSubtitleContainerHeight()
+        val videoHeight = videoSurface.height.takeIf { it > 0 }?.toFloat() ?: containerHeight
 
         // When video height exceeds the container (e.g. cropped/fill aspect ratio),
         // calculate bottom overflow that pushed subtitles out of screen
-        val bottomCropOverflow = ((videoHeight - containerHeight) / 2).coerceAtLeast(0)
+        val bottomCropOverflow = ((videoHeight - containerHeight) / 2f).coerceAtLeast(0f)
 
         // Translation moves subtitles: negative moves UP, positive moves DOWN
-        val maxDragUp = -(containerHeight * 0.85f)
-        val maxDragDown = containerHeight * 0.25f
-        val targetTranslationY = (-bottomCropOverflow.toFloat() + currentSubtitleUserOffset).coerceIn(maxDragUp, maxDragDown)
+        val maxDragUp = -(containerHeight * 0.80f)
+        val maxDragDown = containerHeight * 0.20f
+        val targetTranslationY = (-bottomCropOverflow + currentSubtitleUserOffset).coerceIn(maxDragUp, maxDragDown)
         subtitleSurface.translationY = targetTranslationY
     }
 
@@ -1226,26 +1248,61 @@ open class VideoPlayerActivity : AppCompatActivity(), PlaybackService.Callback, 
         val videoSurface = frame.findViewById<View>(R.id.surface_video) ?: frame.findViewById<View>(R.id.texture_video) ?: return
         val subtitleSurface = getSubtitleSurface() ?: return
 
-        val containerHeight = frame.height.takeIf { it > 0 } ?: if (::touchDelegate.isInitialized) touchDelegate.screenConfig.yRange else 1080
-        val videoHeight = videoSurface.height.takeIf { it > 0 } ?: containerHeight
-        val bottomCropOverflow = ((videoHeight - containerHeight) / 2).coerceAtLeast(0)
+        val containerHeight = getSubtitleContainerHeight()
+        val videoHeight = videoSurface.height.takeIf { it > 0 }?.toFloat() ?: containerHeight
+        val bottomCropOverflow = ((videoHeight - containerHeight) / 2f).coerceAtLeast(0f)
 
         currentSubtitleUserOffset = offset
-        val maxDragUp = -(containerHeight * 0.85f)
-        val maxDragDown = containerHeight * 0.25f
-        val targetTranslationY = (-bottomCropOverflow.toFloat() + offset).coerceIn(maxDragUp, maxDragDown)
+        val maxDragUp = -(containerHeight * 0.80f)
+        val maxDragDown = containerHeight * 0.20f
+        val targetTranslationY = (-bottomCropOverflow + offset).coerceIn(maxDragUp, maxDragDown)
         subtitleSurface.translationY = targetTranslationY
     }
 
-    fun saveSubtitleUserOffset() {
-        settings.putSingle(KEY_SUBTITLES_SURFACE_Y_OFFSET, currentSubtitleUserOffset)
+    fun setSubtitleOffsetRatio(targetRatio: Float, animated: Boolean = true, onEnd: (() -> Unit)? = null) {
+        val clampedRatio = targetRatio.coerceIn(-0.80f, 0.20f)
+        if (animated) {
+            subtitleOffsetAnimator?.cancel()
+            val startRatio = currentSubtitleUserOffsetRatio
+            subtitleOffsetAnimator = ValueAnimator.ofFloat(startRatio, clampedRatio).apply {
+                duration = 250L
+                interpolator = AccelerateDecelerateInterpolator()
+                addUpdateListener { anim ->
+                    currentSubtitleUserOffsetRatio = anim.animatedValue as Float
+                    updateSubtitlePosition()
+                    overlayDelegate.updateSubtitleEditor(
+                        currentSubtitleUserOffset.roundToInt(),
+                        currentSubtitleUserOffsetRatio,
+                        isSnapped = currentSubtitleUserOffsetRatio.absoluteValue < 0.015f
+                    )
+                }
+                doOnEnd {
+                    saveSubtitleUserOffset()
+                    onEnd?.invoke()
+                }
+                start()
+            }
+        } else {
+            currentSubtitleUserOffsetRatio = clampedRatio
+            updateSubtitlePosition()
+            saveSubtitleUserOffset()
+            overlayDelegate.updateSubtitleEditor(
+                currentSubtitleUserOffset.roundToInt(),
+                currentSubtitleUserOffsetRatio,
+                isSnapped = currentSubtitleUserOffsetRatio.absoluteValue < 0.015f
+            )
+            onEnd?.invoke()
+        }
     }
 
-    fun resetSubtitleUserOffset() {
-        currentSubtitleUserOffset = 0f
-        settings.putSingle(KEY_SUBTITLES_SURFACE_Y_OFFSET, 0f)
-        updateSubtitlePosition()
-        overlayDelegate.showInfo(getString(R.string.subtitles_position_reset), 1000)
+    fun saveSubtitleUserOffset() {
+        settings.putSingle(KEY_SUBTITLES_SURFACE_Y_OFFSET, currentSubtitleUserOffsetRatio)
+    }
+
+    fun resetSubtitleUserOffset(animated: Boolean = true) {
+        setSubtitleOffsetRatio(0f, animated) {
+            overlayDelegate.showInfo(getString(R.string.subtitles_position_reset), 1000)
+        }
     }
 
     private fun cleanUI() {

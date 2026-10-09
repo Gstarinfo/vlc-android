@@ -92,6 +92,12 @@
                 android:layout="@layout/player_overlay_info" />
 
         <androidx.appcompat.widget.ViewStubCompat
+                android:id="@+id/player_subtitle_editor_stub"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:layout="@layout/player_subtitle_editor" />
+
+        <androidx.appcompat.widget.ViewStubCompat
                 android:id="@+id/player_overlay_settings_stub"
                 android:layout="@layout/player_overlay_settings"
                 android:layout_width="wrap_content"
