@@ -602,7 +602,10 @@ open class VideoPlayerActivity : AppCompatActivity(), PlaybackService.Callback, 
         }
 
         videoLayout = findViewById(R.id.video_layout)
-        videoLayout?.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+        videoLayout?.addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+            if (left != oldLeft || top != oldTop || right != oldRight || bottom != oldBottom) {
+                resetZoom(animate = false)
+            }
             updateSubtitlePosition()
         }
 
@@ -1388,6 +1391,10 @@ open class VideoPlayerActivity : AppCompatActivity(), PlaybackService.Callback, 
             settings.edit().remove(KEY_SUBTITLES_SURFACE_Y_OFFSET).apply()
             overlayDelegate.showInfo(getString(R.string.subtitles_position_reset), 1000)
         }
+    }
+
+    fun resetZoom(animate: Boolean = false) {
+        if (::touchDelegate.isInitialized) touchDelegate.resetZoom(animate)
     }
 
     private fun cleanUI() {

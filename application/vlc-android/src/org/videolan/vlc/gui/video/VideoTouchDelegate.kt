@@ -94,6 +94,39 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
     private var touchX = -1f
     private var verticalTouchActive = false
 
+    var currentScale = 1.0f
+        private set
+    var currentTransX = 0f
+        private set
+    var currentTransY = 0f
+        private set
+    private var lastFocusX = 0f
+    private var lastFocusY = 0f
+    private var scaleTargetView: View? = null
+
+    fun resetZoom(animate: Boolean = false) {
+        val target = player.videoLayout?.findViewById<FrameLayout>(R.id.player_surface_frame) ?: player.videoLayout
+        currentScale = 1.0f
+        currentTransX = 0f
+        currentTransY = 0f
+        target?.let {
+            if (animate) {
+                it.animate()
+                    .scaleX(1.0f)
+                    .scaleY(1.0f)
+                    .translationX(0f)
+                    .translationY(0f)
+                    .setDuration(250L)
+                    .start()
+            } else {
+                it.scaleX = 1.0f
+                it.scaleY = 1.0f
+                it.translationX = 0f
+                it.translationY = 0f
+            }
+        }
+    }
+
     private var lastMove: Long = 0
     private var savedRate: Float = 1f
     private var initialDragY = 0f
@@ -414,11 +447,18 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
 
                         //handle multi taps
                         if (numberOfTaps > 1 && !player.isLocked) {
-                            val range = (if (screenConfig.orientation == Configuration.ORIENTATION_LANDSCAPE) screenConfig.xRange else screenConfig.yRange).toFloat()
-                            when {
-                                (touchControls and TOUCH_FLAG_DOUBLE_TAP_SEEK != 0) && event.x < range / 4f -> seekDelta(-org.videolan.tools.Settings.videoDoubleTapJumpDelay * 1000)
-                                (touchControls and TOUCH_FLAG_DOUBLE_TAP_SEEK != 0) && event.x > range * 0.75 -> seekDelta(org.videolan.tools.Settings.videoDoubleTapJumpDelay * 1000)
-                                else -> if (touchControls and TOUCH_FLAG_PLAY != 0) player.doPlayPause()
+                            if (currentScale > 1.05f) {
+                                resetZoom(animate = true)
+                                player.window.decorView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                player.overlayDelegate.showInfo("100%", 800)
+                                numberOfTaps = 0
+                            } else {
+                                val range = (if (screenConfig.orientation == Configuration.ORIENTATION_LANDSCAPE) screenConfig.xRange else screenConfig.yRange).toFloat()
+                                when {
+                                    (touchControls and TOUCH_FLAG_DOUBLE_TAP_SEEK != 0) && event.x < range / 4f -> seekDelta(-org.videolan.tools.Settings.videoDoubleTapJumpDelay * 1000)
+                                    (touchControls and TOUCH_FLAG_DOUBLE_TAP_SEEK != 0) && event.x > range * 0.75 -> seekDelta(org.videolan.tools.Settings.videoDoubleTapJumpDelay * 1000)
+                                    else -> if (touchControls and TOUCH_FLAG_PLAY != 0) player.doPlayPause()
+                                }
                             }
                         }
 
@@ -623,19 +663,23 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
 
     private val mScaleListener = object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
 
-        private var accumulatedScale = 1.0f
-        private var scaleTriggered = false
-        private var scaleSurfaceFrame: FrameLayout? = null
-
         override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
             if (touchControls and TOUCH_FLAG_SCALE != TOUCH_FLAG_SCALE) return false
             if (player.isLocked || touchAction == TOUCH_FASTPLAY) return false
             handler.removeCallbacks(fastPlayRunnable)
             handler.removeCallbacks(subtitleDragRunnable)
             if (touchAction == TOUCH_SUBTITLE_POSITION) touchAction = TOUCH_NONE
-            accumulatedScale = 1.0f
-            scaleTriggered = false
-            scaleSurfaceFrame = player.videoLayout?.findViewById(R.id.player_surface_frame)
+
+            scaleTargetView = player.videoLayout?.findViewById(R.id.player_surface_frame) ?: player.videoLayout
+            scaleTargetView?.let {
+                it.pivotX = it.width / 2f
+                it.pivotY = it.height / 2f
+            }
+            player.videoLayout?.clipChildren = false
+            player.videoLayout?.clipToPadding = false
+
+            lastFocusX = detector.focusX
+            lastFocusY = detector.focusY
             return screenConfig.xRange != 0 || player.fov == 0f
         }
 
@@ -648,25 +692,45 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
                 }
             } else if (player.fov == 0f && !player.isLocked && (touchControls and TOUCH_FLAG_SCALE == TOUCH_FLAG_SCALE) && touchAction != TOUCH_FASTPLAY) {
                 val factor = detector.scaleFactor
-                accumulatedScale *= factor
-                scaleSurfaceFrame?.let { frame ->
-                    val current = (frame.scaleX * factor).coerceIn(0.75f, 1.35f)
-                    frame.scaleX = current
-                    frame.scaleY = current
-                }
-                if (accumulatedScale >= 1.22f) {
-                    zoomInAspect()
-                    accumulatedScale = 1.0f
-                    scaleTriggered = true
-                    scaleSurfaceFrame?.animate()?.scaleX(1.0f)?.scaleY(1.0f)?.setDuration(150L)?.start()
-                    player.window.decorView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                } else if (accumulatedScale <= 0.82f) {
-                    zoomOutAspect()
-                    accumulatedScale = 1.0f
-                    scaleTriggered = true
-                    scaleSurfaceFrame?.animate()?.scaleX(1.0f)?.scaleY(1.0f)?.setDuration(150L)?.start()
-                    player.window.decorView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                }
+                if (factor.isNaN() || factor <= 0f) return true
+
+                val target = scaleTargetView ?: return true
+                val prevScale = currentScale
+                val newScale = (currentScale * factor).coerceIn(0.75f, 5.5f)
+                val scaleRatio = newScale / prevScale
+                currentScale = newScale
+
+                val focusX = detector.focusX
+                val focusY = detector.focusY
+                val deltaX = focusX - lastFocusX
+                val deltaY = focusY - lastFocusY
+                lastFocusX = focusX
+                lastFocusY = focusY
+
+                val targetW = target.width.takeIf { it > 0 }?.toFloat() ?: screenConfig.xRange.toFloat()
+                val targetH = target.height.takeIf { it > 0 }?.toFloat() ?: screenConfig.yRange.toFloat()
+
+                val centerX = (target.left + target.right) / 2f + currentTransX
+                val centerY = (target.top + target.bottom) / 2f + currentTransY
+
+                currentTransX += deltaX + (focusX - centerX) * (1f - scaleRatio)
+                currentTransY += deltaY + (focusY - centerY) * (1f - scaleRatio)
+
+                val maxTransX = ((targetW * (currentScale - 1f)) / 2f).coerceAtLeast(0f)
+                val maxTransY = ((targetH * (currentScale - 1f)) / 2f).coerceAtLeast(0f)
+
+                val boundedTransX = if (maxTransX > 0f) currentTransX.coerceIn(-maxTransX * 1.25f, maxTransX * 1.25f) else 0f
+                val boundedTransY = if (maxTransY > 0f) currentTransY.coerceIn(-maxTransY * 1.25f, maxTransY * 1.25f) else 0f
+                currentTransX = boundedTransX
+                currentTransY = boundedTransY
+
+                target.scaleX = currentScale
+                target.scaleY = currentScale
+                target.translationX = boundedTransX
+                target.translationY = boundedTransY
+
+                val percentage = (currentScale * 100).roundToInt()
+                player.overlayDelegate.showInfo("$percentage%", 600)
                 return true
             }
             return false
@@ -674,51 +738,43 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
 
         override fun onScaleEnd(detector: ScaleGestureDetector) {
             if (player.fov == 0f && !player.isLocked && (touchControls and TOUCH_FLAG_SCALE == TOUCH_FLAG_SCALE) && touchAction != TOUCH_FASTPLAY) {
-                if (!scaleTriggered) {
-                    if (accumulatedScale >= 1.10f) {
-                        zoomInAspect()
-                        player.window.decorView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                    } else if (accumulatedScale <= 0.90f) {
-                        zoomOutAspect()
-                        player.window.decorView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                    }
+                val target = scaleTargetView ?: return
+                val targetW = target.width.takeIf { it > 0 }?.toFloat() ?: screenConfig.xRange.toFloat()
+                val targetH = target.height.takeIf { it > 0 }?.toFloat() ?: screenConfig.yRange.toFloat()
+
+                if (currentScale <= 1.05f) {
+                    currentScale = 1.0f
+                    currentTransX = 0f
+                    currentTransY = 0f
+                    target.animate()
+                        .scaleX(1.0f)
+                        .scaleY(1.0f)
+                        .translationX(0f)
+                        .translationY(0f)
+                        .setDuration(200L)
+                        .start()
+                    player.overlayDelegate.showInfo("100%", 800)
+                    player.window.decorView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                } else {
+                    val clampedScale = currentScale.coerceIn(1.0f, 5.0f)
+                    currentScale = clampedScale
+                    val maxTransX = ((targetW * (clampedScale - 1f)) / 2f).coerceAtLeast(0f)
+                    val maxTransY = ((targetH * (clampedScale - 1f)) / 2f).coerceAtLeast(0f)
+                    val clampedTransX = currentTransX.coerceIn(-maxTransX, maxTransX)
+                    val clampedTransY = currentTransY.coerceIn(-maxTransY, maxTransY)
+                    currentTransX = clampedTransX
+                    currentTransY = clampedTransY
+                    target.animate()
+                        .scaleX(clampedScale)
+                        .scaleY(clampedScale)
+                        .translationX(clampedTransX)
+                        .translationY(clampedTransY)
+                        .setDuration(150L)
+                        .start()
+                    val percentage = (clampedScale * 100).roundToInt()
+                    player.overlayDelegate.showInfo("$percentage%", 800)
                 }
-                scaleSurfaceFrame?.animate()?.scaleX(1.0f)?.scaleY(1.0f)?.setDuration(200L)?.start()
-                accumulatedScale = 1.0f
-                scaleTriggered = false
                 touchAction = TOUCH_IGNORE
-            }
-        }
-
-        private fun zoomInAspect() {
-            val current = player.currentScaleType
-            val next = when (current) {
-                MediaPlayer.ScaleType.SURFACE_BEST_FIT -> MediaPlayer.ScaleType.SURFACE_FIT_SCREEN
-                MediaPlayer.ScaleType.SURFACE_FIT_SCREEN -> MediaPlayer.ScaleType.SURFACE_FILL
-                MediaPlayer.ScaleType.SURFACE_FILL -> MediaPlayer.ScaleType.SURFACE_16_9
-                MediaPlayer.ScaleType.SURFACE_16_9 -> MediaPlayer.ScaleType.SURFACE_2_1
-                MediaPlayer.ScaleType.SURFACE_2_1 -> MediaPlayer.ScaleType.SURFACE_ORIGINAL
-                MediaPlayer.ScaleType.SURFACE_ORIGINAL -> MediaPlayer.ScaleType.SURFACE_ORIGINAL
-                else -> MediaPlayer.ScaleType.SURFACE_FILL
-            }
-            if (next != current) {
-                resizeDelegate.setVideoScale(next)
-            }
-        }
-
-        private fun zoomOutAspect() {
-            val current = player.currentScaleType
-            val prev = when (current) {
-                MediaPlayer.ScaleType.SURFACE_ORIGINAL -> MediaPlayer.ScaleType.SURFACE_2_1
-                MediaPlayer.ScaleType.SURFACE_2_1 -> MediaPlayer.ScaleType.SURFACE_16_9
-                MediaPlayer.ScaleType.SURFACE_16_9 -> MediaPlayer.ScaleType.SURFACE_FILL
-                MediaPlayer.ScaleType.SURFACE_FILL -> MediaPlayer.ScaleType.SURFACE_FIT_SCREEN
-                MediaPlayer.ScaleType.SURFACE_FIT_SCREEN -> MediaPlayer.ScaleType.SURFACE_BEST_FIT
-                MediaPlayer.ScaleType.SURFACE_BEST_FIT -> MediaPlayer.ScaleType.SURFACE_BEST_FIT
-                else -> MediaPlayer.ScaleType.SURFACE_BEST_FIT
-            }
-            if (prev != current) {
-                resizeDelegate.setVideoScale(prev)
             }
         }
     }

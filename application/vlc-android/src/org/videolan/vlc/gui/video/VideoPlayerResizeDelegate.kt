@@ -184,6 +184,7 @@ class VideoPlayerResizeDelegate(private val player: VideoPlayerActivity) {
         }
         settings.putSingle(VIDEO_RATIO, scale.ordinal)
         player.videoLayout?.post {
+            player.resetZoom(animate = false)
             player.updateSubtitlePosition()
         }
     }
