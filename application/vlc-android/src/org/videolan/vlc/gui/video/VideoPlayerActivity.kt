@@ -1241,6 +1241,13 @@ open class VideoPlayerActivity : AppCompatActivity(), PlaybackService.Callback, 
         val maxDragDown = containerHeight * 0.20f
         val targetTranslationY = (-bottomCropOverflow + currentSubtitleUserOffset).coerceIn(maxDragUp, maxDragDown)
         subtitleSurface.translationY = targetTranslationY
+        if (overlayDelegate.isSubtitleEditorVisible()) {
+            overlayDelegate.updateSubtitleEditor(
+                currentSubtitleUserOffset.roundToInt(),
+                currentSubtitleUserOffsetRatio,
+                isSnapped = currentSubtitleUserOffsetRatio.absoluteValue < 0.015f
+            )
+        }
     }
 
     fun setSubtitleUserOffset(offset: Float) {

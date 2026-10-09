@@ -425,6 +425,13 @@ class VideoPlayerOverlayDelegate (private val player: VideoPlayerActivity) {
             player.currentSubtitleUserOffsetRatio,
             isSnapped = player.currentSubtitleUserOffsetRatio.absoluteValue < 0.015f
         )
+        subtitleEditorRoot?.post {
+            updateSubtitleEditor(
+                player.currentSubtitleUserOffset.roundToInt(),
+                player.currentSubtitleUserOffsetRatio,
+                isSnapped = player.currentSubtitleUserOffsetRatio.absoluteValue < 0.015f
+            )
+        }
     }
 
     fun updateSubtitleEditor(offsetPx: Int, ratio: Float, isSnapped: Boolean) {
@@ -437,7 +444,36 @@ class VideoPlayerOverlayDelegate (private val player: VideoPlayerActivity) {
         }
         offsetTv.setTextColor(if (isSnapped || offsetPx == 0) ContextCompat.getColor(player, R.color.orange500) else Color.WHITE)
 
-        subtitleGhostBox?.translationY = player.currentSubtitleUserOffset
+        val root = subtitleEditorRoot ?: return
+        val ghostBox = subtitleGhostBox ?: return
+        val guide = subtitleBaselineGuide
+        val label = player.findViewById<View>(R.id.subtitle_baseline_label)
+
+        val frame = player.findViewById<FrameLayout>(R.id.player_surface_frame)
+        val videoSurface = frame?.findViewById<View>(R.id.surface_video) ?: frame?.findViewById<View>(R.id.texture_video)
+        val subtitleSurface = player.getSubtitleSurface()
+
+        if (videoSurface != null && videoSurface.height > 0 && root.height > 0) {
+            val locVideo = IntArray(2)
+            videoSurface.getLocationInWindow(locVideo)
+            val locRoot = IntArray(2)
+            root.getLocationInWindow(locRoot)
+
+            val videoTopInRoot = (locVideo[1] - locRoot[1]).toFloat()
+            val videoBottomInRoot = videoTopInRoot + videoSurface.height
+            val containerHeight = player.getSubtitleContainerHeight()
+            val visibleBottom = videoBottomInRoot.coerceAtMost(containerHeight)
+
+            // LibVLC renders subtitle text with ~32dp margin from bottom of video frame
+            val baselineY = visibleBottom - 36.dp.toFloat()
+            val subsTranslationY = subtitleSurface?.translationY ?: player.currentSubtitleUserOffset
+
+            guide?.let { it.translationY = baselineY - it.top }
+            label?.let { it.translationY = (baselineY - 4.dp.toFloat()) - it.bottom }
+            ghostBox.translationY = (baselineY + subsTranslationY) - ghostBox.bottom
+        } else {
+            subtitleGhostBox?.translationY = player.currentSubtitleUserOffset
+        }
     }
 
     fun hideSubtitleEditor() {
