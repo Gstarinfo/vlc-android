@@ -1237,7 +1237,9 @@ open class VideoPlayerActivity : AppCompatActivity(), PlaybackService.Callback, 
     fun hasSubtitles(): Boolean {
         val s = service ?: return false
         val track = s.spuTrack
-        return track.isNotEmpty() && track != "-1" && track != "0" && s.spuTracksCount > 0
+        if (track.isNotEmpty() && track != "-1") return true
+        val tracks = s.spuTracks
+        return !tracks.isNullOrEmpty() && tracks.any { it.getId() != "-1" }
     }
 
     fun getSubtitleContainerHeight(): Float {
@@ -1248,6 +1250,16 @@ open class VideoPlayerActivity : AppCompatActivity(), PlaybackService.Callback, 
 
     fun getSubtitleSurface(): View? {
         val frame = videoLayout?.findViewById<FrameLayout>(R.id.player_surface_frame) ?: return null
+        val sub = frame.findViewById<View>(R.id.surface_subtitles)
+        if (sub != null) return sub
+        val stub = frame.findViewById<android.view.ViewStub>(R.id.subtitles_surface_stub)
+        if (stub != null) {
+            try {
+                return stub.inflate()
+            } catch (e: Throwable) {
+                // Ignore if already inflated or parent removed
+            }
+        }
         return frame.findViewById<View>(R.id.surface_subtitles)
             ?: frame.children.firstOrNull { it.id != R.id.surface_video && it !is android.view.ViewStub }
     }
@@ -1274,6 +1286,8 @@ open class VideoPlayerActivity : AppCompatActivity(), PlaybackService.Callback, 
 
         val untranslatedBottom = if (subtitleSurface != null && subtitleSurface.bottom > 0) {
             subtitleSurface.bottom.toFloat()
+        } else if (videoSurface != null && videoSurface.bottom > 0) {
+            videoSurface.bottom.toFloat()
         } else {
             (containerHeight + subHeight) / 2f
         }

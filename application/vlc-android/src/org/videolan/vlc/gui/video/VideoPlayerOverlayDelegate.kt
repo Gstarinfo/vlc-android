@@ -361,8 +361,6 @@ class VideoPlayerOverlayDelegate (private val player: VideoPlayerActivity) {
 
     private var subtitleEditorRoot: View? = null
     private var subtitleEditorPill: View? = null
-    private var subtitleGhostBox: View? = null
-    private var subtitleBaselineGuide: View? = null
     private var subtitleEditorOffsetTextView: TextView? = null
     var isSubtitleEditorActive: Boolean = false
         private set
@@ -376,8 +374,6 @@ class VideoPlayerOverlayDelegate (private val player: VideoPlayerActivity) {
             vsc.setVisible()
             subtitleEditorRoot = player.findViewById(R.id.subtitle_editor_root)
             subtitleEditorPill = player.findViewById(R.id.subtitle_editor_pill)
-            subtitleGhostBox = player.findViewById(R.id.subtitle_ghost_box)
-            subtitleBaselineGuide = player.findViewById(R.id.subtitle_baseline_guide)
             subtitleEditorOffsetTextView = player.findViewById(R.id.subtitle_editor_offset_text)
 
             player.findViewById<View>(R.id.subtitle_btn_up)?.setOnClickListener {
@@ -423,21 +419,12 @@ class VideoPlayerOverlayDelegate (private val player: VideoPlayerActivity) {
 
         subtitleEditorRoot?.setVisible()
         subtitleEditorPill?.setVisible()
-        subtitleBaselineGuide?.setVisible()
-        subtitleGhostBox?.setVisible()
 
         updateSubtitleEditor(
             player.currentSubtitleUserOffset.roundToInt(),
             player.currentSubtitleUserOffsetRatio,
             isSnapped = player.currentSubtitleUserOffsetRatio.absoluteValue < 0.015f
         )
-        subtitleEditorRoot?.post {
-            updateSubtitleEditor(
-                player.currentSubtitleUserOffset.roundToInt(),
-                player.currentSubtitleUserOffsetRatio,
-                isSnapped = player.currentSubtitleUserOffsetRatio.absoluteValue < 0.015f
-            )
-        }
     }
 
     fun updateSubtitleEditor(offsetPx: Int, ratio: Float, isSnapped: Boolean) {
@@ -449,42 +436,6 @@ class VideoPlayerOverlayDelegate (private val player: VideoPlayerActivity) {
             else -> "$offsetDisplay px"
         }
         offsetTv.setTextColor(if (isSnapped || offsetPx == 0) ContextCompat.getColor(player, R.color.orange500) else Color.WHITE)
-
-        val root = subtitleEditorRoot ?: return
-        val ghostBox = subtitleGhostBox ?: return
-        val guide = subtitleBaselineGuide
-        val label = player.findViewById<View>(R.id.subtitle_baseline_label)
-
-        val frame = player.findViewById<FrameLayout>(R.id.player_surface_frame)
-        val videoSurface = frame?.findViewById<View>(R.id.surface_video) ?: frame?.findViewById<View>(R.id.texture_video)
-        val subtitleSurface = player.getSubtitleSurface()
-
-        if (videoSurface != null && videoSurface.height > 0 && root.height > 0) {
-            val locVideo = IntArray(2)
-            videoSurface.getLocationInWindow(locVideo)
-            val locRoot = IntArray(2)
-            root.getLocationInWindow(locRoot)
-
-            val videoTopInRoot = (locVideo[1] - locRoot[1]).toFloat()
-            val videoBottomInRoot = videoTopInRoot + videoSurface.height
-            val containerHeight = player.getSubtitleContainerHeight()
-            val visibleBottom = videoBottomInRoot.coerceAtMost(containerHeight)
-
-            // LibVLC renders subtitle text with ~32dp margin from bottom of video frame
-            val baselineY = visibleBottom - 36.dp.toFloat()
-            val subsTranslationY = subtitleSurface?.translationY ?: player.currentSubtitleUserOffset
-
-            guide?.let { it.translationY = baselineY - it.top }
-            label?.let { it.translationY = (baselineY - 4.dp.toFloat()) - it.bottom }
-            val targetGhostTranslationY = (baselineY + subsTranslationY) - ghostBox.bottom
-            val clampedGhostTranslationY = targetGhostTranslationY.coerceIn(
-                (50.dp.toFloat() - ghostBox.bottom),
-                (root.height.toFloat() - 40.dp.toFloat() - ghostBox.bottom)
-            )
-            ghostBox.translationY = clampedGhostTranslationY
-        } else {
-            subtitleGhostBox?.translationY = player.currentSubtitleUserOffset
-        }
     }
 
     fun hideSubtitleEditor() {

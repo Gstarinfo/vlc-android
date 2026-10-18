@@ -150,6 +150,15 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
         return x >= pillX && x <= pillX + pill.width && y >= pillY && y <= pillY + pill.height
     }
 
+    private fun isNearSubtitleRegion(y: Float): Boolean {
+        val screenHeight = screenConfig.metrics.heightPixels.toFloat()
+        val bounds = player.getSubtitleBounds()
+        val currentSubY = bounds.untranslatedBottom + player.currentSubtitleUserOffset
+
+        val diffFromSub = (y - currentSubY).absoluteValue
+        return diffFromSub <= 160.dp || y >= screenHeight * 0.48f
+    }
+
     private val fastPlayRunnable = Runnable {
         if (touchAction == TOUCH_NONE && player.service != null) {
             savedRate = player.service!!.rate
@@ -289,11 +298,9 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
                             initialDragY = initTouchY
                             initialSubtitleOffset = player.currentSubtitleUserOffset
                         } else {
-                            val screenHeight = screenConfig.metrics.heightPixels.toFloat()
-                            val currentVisualSubsY = screenHeight * 0.85f + player.currentSubtitleUserOffset
-                            val isNearSubtitles = player.isSubtitleDragEnabled && (initTouchY >= screenHeight * 0.65f || (initTouchY - currentVisualSubsY).absoluteValue <= 120.dp) && player.hasSubtitles()
+                            val isNearSubtitles = player.isSubtitleDragEnabled && isNearSubtitleRegion(initTouchY) && (player.hasSubtitles() || player.overlayDelegate.isSubtitleEditorActive)
                             if (isNearSubtitles && isInAllowedBounds(touchX, touchY)) {
-                                handler.postDelayed(subtitleDragRunnable, ViewConfiguration.getLongPressTimeout().toLong())
+                                handler.postDelayed(subtitleDragRunnable, 350L)
                             } else if (touchControls and TOUCH_FLAG_FASTPLAY != 0 && isInAllowedBounds(touchX, touchY)) {
                                 handler.postDelayed(fastPlayRunnable, 250)
                             }
@@ -325,9 +332,7 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
                             return true
                         }
                         val touchSlop = ViewConfiguration.get(player).scaledTouchSlop
-                        val screenHeight = screenConfig.metrics.heightPixels.toFloat()
-                        val currentVisualSubsY = screenHeight * 0.85f + player.currentSubtitleUserOffset
-                        val isNearSubs = player.isSubtitleDragEnabled && (initTouchY >= screenHeight * 0.65f || (initTouchY - currentVisualSubsY).absoluteValue <= 120.dp) && player.hasSubtitles()
+                        val isNearSubs = player.isSubtitleDragEnabled && isNearSubtitleRegion(initTouchY) && (player.hasSubtitles() || player.overlayDelegate.isSubtitleEditorActive)
                         val slopTolerance = if (isNearSubs) touchSlop * 2.5f else touchSlop.toFloat()
                         if ((event.y - initTouchY).absoluteValue > slopTolerance || (event.x - initTouchX).absoluteValue > slopTolerance) {
                             handler.removeCallbacks(subtitleDragRunnable)
