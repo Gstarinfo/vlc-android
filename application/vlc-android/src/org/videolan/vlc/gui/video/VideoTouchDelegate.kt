@@ -55,18 +55,18 @@ const val TOUCH_FLAG_SCREENSHOT = 1 shl 5
 const val TOUCH_FLAG_SCALE = 1 shl 6
 const val TOUCH_FLAG_FASTPLAY = 1 shl 7
 //Touch Events
-private const val TOUCH_NONE = 0
-private const val TOUCH_VOLUME = 1
-private const val TOUCH_BRIGHTNESS = 2
-private const val TOUCH_MOVE = 3
-private const val TOUCH_TAP_SEEK = 4
-private const val TOUCH_IGNORE = 5
-private const val TOUCH_SCREENSHOT = 6
-private const val TOUCH_FASTPLAY = 7
-private const val TOUCH_SUBTITLE_POSITION = 8
+internal const val TOUCH_NONE = 0
+internal const val TOUCH_VOLUME = 1
+internal const val TOUCH_BRIGHTNESS = 2
+internal const val TOUCH_MOVE = 3
+internal const val TOUCH_TAP_SEEK = 4
+internal const val TOUCH_IGNORE = 5
+internal const val TOUCH_SCREENSHOT = 6
+internal const val TOUCH_FASTPLAY = 7
+internal const val TOUCH_SUBTITLE_POSITION = 8
 
-private const val MIN_FOV = 20f
-private const val MAX_FOV = 150f
+internal const val MIN_FOV = 20f
+internal const val MAX_FOV = 150f
 //stick event
 private const val JOYSTICK_INPUT_DELAY = 300
 
@@ -82,7 +82,7 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
     var numberOfTaps = 0
     var lastTapTimeMs: Long = 0
     var touchDownMs: Long = 0
-    private var touchAction = TOUCH_NONE
+    internal var touchAction = TOUCH_NONE
         set(value) {
             field = value
             Log.d(this::class.java.simpleName, "touchAction $value")
@@ -94,70 +94,11 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
     private var touchX = -1f
     private var verticalTouchActive = false
 
-    var currentScale = 1.0f
-        private set
-    var currentTransX = 0f
-        private set
-    var currentTransY = 0f
-        private set
-    private var lastFocusX = 0f
-    private var lastFocusY = 0f
-    private var scaleTargetView: View? = null
-
-    fun resetZoom(animate: Boolean = false) {
-        val target = player.videoLayout?.findViewById<FrameLayout>(R.id.player_surface_frame) ?: player.videoLayout
-        currentScale = 1.0f
-        currentTransX = 0f
-        currentTransY = 0f
-        target?.let {
-            if (animate) {
-                it.animate()
-                    .scaleX(1.0f)
-                    .scaleY(1.0f)
-                    .translationX(0f)
-                    .translationY(0f)
-                    .setDuration(250L)
-                    .start()
-            } else {
-                it.scaleX = 1.0f
-                it.scaleY = 1.0f
-                it.translationX = 0f
-                it.translationY = 0f
-            }
-        }
-    }
+    val currentScale: Float get() = player.zoomDelegate.currentScale
+    fun resetZoom(animate: Boolean = false) = player.zoomDelegate.resetZoom(animate)
 
     private var lastMove: Long = 0
     private var savedRate: Float = 1f
-    private var initialDragY = 0f
-    private var initialSubtitleOffset = 0f
-    private var subtitleDragged = false
-    private var wasNearZero = false
-
-    private val autoDismissSubtitleEditorRunnable = Runnable {
-        if (player.overlayDelegate.isSubtitleEditorActive) {
-            player.overlayDelegate.hideSubtitleEditor()
-        }
-    }
-
-    private fun isTouchInsideSubtitlePill(x: Float, y: Float): Boolean {
-        val pill = player.findViewById<View>(R.id.subtitle_editor_pill) ?: return false
-        if (!pill.isVisible) return false
-        val location = IntArray(2)
-        pill.getLocationOnScreen(location)
-        val pillX = location[0].toFloat()
-        val pillY = location[1].toFloat()
-        return x >= pillX && x <= pillX + pill.width && y >= pillY && y <= pillY + pill.height
-    }
-
-    private fun isNearSubtitleRegion(y: Float): Boolean {
-        val screenHeight = screenConfig.metrics.heightPixels.toFloat()
-        val bounds = player.getSubtitleBounds()
-        val currentSubY = bounds.untranslatedBottom + player.currentSubtitleUserOffset
-
-        val diffFromSub = (y - currentSubY).absoluteValue
-        return diffFromSub <= 160.dp || y >= screenHeight * 0.48f
-    }
 
     private val fastPlayRunnable = Runnable {
         if (touchAction == TOUCH_NONE && player.service != null) {
@@ -166,20 +107,6 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
             showFastPlay()
             player.overlayDelegate.hideOverlay(fromUser = true)
             touchAction = TOUCH_FASTPLAY
-        }
-    }
-
-    private val subtitleDragRunnable = Runnable {
-        if (player.isSubtitleDragEnabled && touchAction == TOUCH_NONE && player.service != null) {
-            handler.removeCallbacks(fastPlayRunnable)
-            touchAction = TOUCH_SUBTITLE_POSITION
-            subtitleDragged = false
-            wasNearZero = false
-            player.window.decorView.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-            player.overlayDelegate.hideOverlay(fromUser = true)
-            initialDragY = if (touchY != -1f) touchY else initTouchY
-            initialSubtitleOffset = player.currentSubtitleUserOffset
-            player.overlayDelegate.showSubtitleEditor(fromTouch = true)
         }
     }
 
@@ -208,9 +135,7 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
         private const val SEEK_TIMEOUT = 750L
     }
 
-    private val scaleGestureDetector by lazy(LazyThreadSafetyMode.NONE) {
-        ScaleGestureDetector(player, mScaleListener).apply { ScaleGestureDetectorCompat.setQuickScaleEnabled(this, false) }
-    }
+
 
     // Brightness
     private var isFirstBrightnessGesture = true
@@ -236,14 +161,11 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
             else -> {
                 if (event.pointerCount > 1) {
                     handler.removeCallbacks(fastPlayRunnable)
-                    handler.removeCallbacks(subtitleDragRunnable)
+                    player.subtitleDelegate.cancelPendingTouch()
                 }
-                if (!player.isLocked && touchAction != TOUCH_FASTPLAY) {
-                    scaleGestureDetector.onTouchEvent(event)
-                    if (scaleGestureDetector.isInProgress) {
-                        touchAction = TOUCH_IGNORE
-                        return true
-                    }
+                if (player.zoomDelegate.onTouchEvent(event)) {
+                    touchAction = TOUCH_IGNORE
+                    return true
                 }
                 // fov == 0f -> not a 360 video
                 if ((touchControls == 0  && player.fov == 0f) || player.isLocked) {
@@ -288,54 +210,22 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
                         // Mouse events for the core
                         player.sendMouseEvent(MotionEvent.ACTION_DOWN, xTouch, yTouch)
                         handler.removeCallbacks(fastPlayRunnable)
-                        handler.removeCallbacks(subtitleDragRunnable)
-                        handler.removeCallbacks(autoDismissSubtitleEditorRunnable)
+                        player.subtitleDelegate.cancelPendingTouch()
 
-                        if (player.isSubtitleDragEnabled && player.overlayDelegate.isSubtitleEditorActive && !isTouchInsideSubtitlePill(initTouchX, initTouchY)) {
+                        if (player.subtitleDelegate.onTouchDown(event, isInAllowedBounds(touchX, touchY))) {
                             touchAction = TOUCH_SUBTITLE_POSITION
-                            subtitleDragged = false
-                            wasNearZero = false
-                            initialDragY = initTouchY
-                            initialSubtitleOffset = player.currentSubtitleUserOffset
-                        } else {
-                            val isNearSubtitles = player.isSubtitleDragEnabled && isNearSubtitleRegion(initTouchY) && (player.hasSubtitles() || player.overlayDelegate.isSubtitleEditorActive)
-                            if (isNearSubtitles && isInAllowedBounds(touchX, touchY)) {
-                                handler.postDelayed(subtitleDragRunnable, 350L)
-                            } else if (touchControls and TOUCH_FLAG_FASTPLAY != 0 && isInAllowedBounds(touchX, touchY)) {
-                                handler.postDelayed(fastPlayRunnable, 250)
-                            }
+                        } else if (touchControls and TOUCH_FLAG_FASTPLAY != 0 && isInAllowedBounds(touchX, touchY)) {
+                            handler.postDelayed(fastPlayRunnable, 250)
                         }
                     }
                     MotionEvent.ACTION_MOVE -> {
                         if (touchAction == TOUCH_SUBTITLE_POSITION) {
-                            val dragDeltaY = event.y - initialDragY
-                            if (dragDeltaY.absoluteValue > 3f) {
-                                subtitleDragged = true
-                            }
-                            val rawNewOffset = initialSubtitleOffset + dragDeltaY
-                            val isNearDetent = rawNewOffset.absoluteValue <= 18f
-                            val finalOffset = if (isNearDetent) 0f else rawNewOffset
-
-                            if (isNearDetent && !wasNearZero) {
-                                player.window.decorView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                                wasNearZero = true
-                            } else if (!isNearDetent) {
-                                wasNearZero = false
-                            }
-
-                            player.setSubtitleUserOffset(finalOffset)
-                            player.overlayDelegate.updateSubtitleEditor(
-                                finalOffset.roundToInt(),
-                                player.currentSubtitleUserOffsetRatio,
-                                isSnapped = isNearDetent || finalOffset == 0f
-                            )
+                            player.subtitleDelegate.onTouchMove(event)
                             return true
                         }
                         val touchSlop = ViewConfiguration.get(player).scaledTouchSlop
-                        val isNearSubs = player.isSubtitleDragEnabled && isNearSubtitleRegion(initTouchY) && (player.hasSubtitles() || player.overlayDelegate.isSubtitleEditorActive)
-                        val slopTolerance = if (isNearSubs) touchSlop * 2.5f else touchSlop.toFloat()
-                        if ((event.y - initTouchY).absoluteValue > slopTolerance || (event.x - initTouchX).absoluteValue > slopTolerance) {
-                            handler.removeCallbacks(subtitleDragRunnable)
+                        if ((event.y - initTouchY).absoluteValue > touchSlop || (event.x - initTouchX).absoluteValue > touchSlop) {
+                            player.subtitleDelegate.cancelPendingTouch()
                             handler.removeCallbacks(fastPlayRunnable)
                         }
                         if ((touchControls and TOUCH_FLAG_SCREENSHOT == TOUCH_FLAG_SCREENSHOT) && event.pointerCount == 3 && touchAction != TOUCH_FASTPLAY) touchAction = TOUCH_SCREENSHOT
@@ -372,26 +262,15 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
                         }
                     }
                     MotionEvent.ACTION_UP -> {
-                        handler.removeCallbacks(subtitleDragRunnable)
+                        player.subtitleDelegate.cancelPendingTouch()
                         handler.removeCallbacks(fastPlayRunnable)
                         if (touchAction == TOUCH_SUBTITLE_POSITION) {
+                            player.subtitleDelegate.onTouchUp(event)
                             touchAction = TOUCH_NONE
-                            if (subtitleDragged) {
-                                player.saveSubtitleUserOffset()
-                                handler.removeCallbacks(autoDismissSubtitleEditorRunnable)
-                                handler.postDelayed(autoDismissSubtitleEditorRunnable, 3000L)
-                            } else if (player.overlayDelegate.isSubtitleEditorActive) {
-                                if (now - touchDownMs < ViewConfiguration.getLongPressTimeout()) {
-                                    player.overlayDelegate.hideSubtitleEditor()
-                                } else {
-                                    handler.removeCallbacks(autoDismissSubtitleEditorRunnable)
-                                    handler.postDelayed(autoDismissSubtitleEditorRunnable, 4000L)
-                                }
-                            }
                             return true
                         }
-                        if (player.overlayDelegate.isSubtitleEditorActive && !isTouchInsideSubtitlePill(event.x, event.y)) {
-                            player.overlayDelegate.hideSubtitleEditor()
+                        if (player.subtitleDelegate.isSubtitleEditorActive && !player.subtitleDelegate.isTouchInsideSubtitlePill(event.x, event.y)) {
+                            player.subtitleDelegate.hideSubtitleEditor()
                             return true
                         }
                         // FastPlay
@@ -452,10 +331,7 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
 
                         //handle multi taps
                         if (numberOfTaps > 1 && !player.isLocked) {
-                            if (currentScale > 1.05f) {
-                                resetZoom(animate = true)
-                                player.window.decorView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                                player.overlayDelegate.showInfo("100%", 800)
+                            if (player.zoomDelegate.onDoubleTap()) {
                                 numberOfTaps = 0
                             } else {
                                 val range = (if (screenConfig.orientation == Configuration.ORIENTATION_LANDSCAPE) screenConfig.xRange else screenConfig.yRange).toFloat()
@@ -480,9 +356,8 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
                         }
                     }
                     MotionEvent.ACTION_CANCEL -> {
-                        handler.removeCallbacks(subtitleDragRunnable)
+                        player.subtitleDelegate.cancelPendingTouch()
                         handler.removeCallbacks(fastPlayRunnable)
-                        handler.removeCallbacks(autoDismissSubtitleEditorRunnable)
                         if (touchAction == TOUCH_SUBTITLE_POSITION) {
                             player.saveSubtitleUserOffset()
                         }
@@ -666,123 +541,7 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
         player.changeBrightness(delta)
     }
 
-    private val mScaleListener = object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
 
-        override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
-            if (touchControls and TOUCH_FLAG_SCALE != TOUCH_FLAG_SCALE) return false
-            if (player.isLocked || touchAction == TOUCH_FASTPLAY) return false
-            handler.removeCallbacks(fastPlayRunnable)
-            handler.removeCallbacks(subtitleDragRunnable)
-            if (touchAction == TOUCH_SUBTITLE_POSITION) touchAction = TOUCH_NONE
-
-            scaleTargetView = player.videoLayout?.findViewById(R.id.player_surface_frame) ?: player.videoLayout
-            scaleTargetView?.let {
-                it.pivotX = it.width / 2f
-                it.pivotY = it.height / 2f
-            }
-            player.videoLayout?.clipChildren = false
-            player.videoLayout?.clipToPadding = false
-
-            lastFocusX = detector.focusX
-            lastFocusY = detector.focusY
-            return screenConfig.xRange != 0 || player.fov == 0f
-        }
-
-        override fun onScale(detector: ScaleGestureDetector): Boolean {
-            if (player.fov != 0f && !player.isLocked && (touchControls and TOUCH_FLAG_SCALE == TOUCH_FLAG_SCALE)) {
-                val diff = VideoPlayerActivity.DEFAULT_FOV * (1 - detector.scaleFactor)
-                if (player.updateViewpoint(0f, 0f, diff)) {
-                    player.fov = (player.fov + diff).coerceIn(MIN_FOV, MAX_FOV)
-                    return true
-                }
-            } else if (player.fov == 0f && !player.isLocked && (touchControls and TOUCH_FLAG_SCALE == TOUCH_FLAG_SCALE) && touchAction != TOUCH_FASTPLAY) {
-                val factor = detector.scaleFactor
-                if (factor.isNaN() || factor <= 0f) return true
-
-                val target = scaleTargetView ?: return true
-                val prevScale = currentScale
-                val newScale = (currentScale * factor).coerceIn(0.75f, 5.5f)
-                val scaleRatio = newScale / prevScale
-                currentScale = newScale
-
-                val focusX = detector.focusX
-                val focusY = detector.focusY
-                val deltaX = focusX - lastFocusX
-                val deltaY = focusY - lastFocusY
-                lastFocusX = focusX
-                lastFocusY = focusY
-
-                val targetW = target.width.takeIf { it > 0 }?.toFloat() ?: screenConfig.xRange.toFloat()
-                val targetH = target.height.takeIf { it > 0 }?.toFloat() ?: screenConfig.yRange.toFloat()
-
-                val centerX = (target.left + target.right) / 2f + currentTransX
-                val centerY = (target.top + target.bottom) / 2f + currentTransY
-
-                currentTransX += deltaX + (focusX - centerX) * (1f - scaleRatio)
-                currentTransY += deltaY + (focusY - centerY) * (1f - scaleRatio)
-
-                val maxTransX = ((targetW * (currentScale - 1f)) / 2f).coerceAtLeast(0f)
-                val maxTransY = ((targetH * (currentScale - 1f)) / 2f).coerceAtLeast(0f)
-
-                val boundedTransX = if (maxTransX > 0f) currentTransX.coerceIn(-maxTransX * 1.25f, maxTransX * 1.25f) else 0f
-                val boundedTransY = if (maxTransY > 0f) currentTransY.coerceIn(-maxTransY * 1.25f, maxTransY * 1.25f) else 0f
-                currentTransX = boundedTransX
-                currentTransY = boundedTransY
-
-                target.scaleX = currentScale
-                target.scaleY = currentScale
-                target.translationX = boundedTransX
-                target.translationY = boundedTransY
-
-                val percentage = (currentScale * 100).roundToInt()
-                player.overlayDelegate.showInfo("$percentage%", 600)
-                return true
-            }
-            return false
-        }
-
-        override fun onScaleEnd(detector: ScaleGestureDetector) {
-            if (player.fov == 0f && !player.isLocked && (touchControls and TOUCH_FLAG_SCALE == TOUCH_FLAG_SCALE) && touchAction != TOUCH_FASTPLAY) {
-                val target = scaleTargetView ?: return
-                val targetW = target.width.takeIf { it > 0 }?.toFloat() ?: screenConfig.xRange.toFloat()
-                val targetH = target.height.takeIf { it > 0 }?.toFloat() ?: screenConfig.yRange.toFloat()
-
-                if (currentScale <= 1.05f) {
-                    currentScale = 1.0f
-                    currentTransX = 0f
-                    currentTransY = 0f
-                    target.animate()
-                        .scaleX(1.0f)
-                        .scaleY(1.0f)
-                        .translationX(0f)
-                        .translationY(0f)
-                        .setDuration(200L)
-                        .start()
-                    player.overlayDelegate.showInfo("100%", 800)
-                    player.window.decorView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                } else {
-                    val clampedScale = currentScale.coerceIn(1.0f, 5.0f)
-                    currentScale = clampedScale
-                    val maxTransX = ((targetW * (clampedScale - 1f)) / 2f).coerceAtLeast(0f)
-                    val maxTransY = ((targetH * (clampedScale - 1f)) / 2f).coerceAtLeast(0f)
-                    val clampedTransX = currentTransX.coerceIn(-maxTransX, maxTransX)
-                    val clampedTransY = currentTransY.coerceIn(-maxTransY, maxTransY)
-                    currentTransX = clampedTransX
-                    currentTransY = clampedTransY
-                    target.animate()
-                        .scaleX(clampedScale)
-                        .scaleY(clampedScale)
-                        .translationX(clampedTransX)
-                        .translationY(clampedTransY)
-                        .setDuration(150L)
-                        .start()
-                    val percentage = (clampedScale * 100).roundToInt()
-                    player.overlayDelegate.showInfo("$percentage%", 800)
-                }
-                touchAction = TOUCH_IGNORE
-            }
-        }
-    }
 
     //Seek
 
