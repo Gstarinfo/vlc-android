@@ -23,11 +23,16 @@ import org.videolan.vlc.R
 import kotlin.math.roundToInt
 
 /**
- * Modular delegate encapsulating continuous smooth zoom (1.0x to 5.0x),
- * two-finger focal tracking & panning, boundary clamping, spring-back,
- * and double-tap zoom reset for VLC Enhanced.
+ * Modular delegate encapsulating continuous smooth zoom (0.25x to 5.0x),
+ * two-finger focal tracking & panning, boundary clamping, and double-tap zoom reset
+ * for VLC Enhanced.
  */
 class VideoPlayerZoomDelegate(private val player: VideoPlayerActivity) {
+
+    companion object {
+        const val MIN_SCALE = 0.25f
+        const val MAX_SCALE = 5.0f
+    }
 
     var currentScale: Float = 1.0f
         private set
@@ -41,7 +46,7 @@ class VideoPlayerZoomDelegate(private val player: VideoPlayerActivity) {
     private var scaleTargetView: View? = null
 
     val isZoomed: Boolean
-        get() = currentScale > 1.05f
+        get() = currentScale < 0.95f || currentScale > 1.05f
 
     private val mScaleListener = object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
 
@@ -81,7 +86,7 @@ class VideoPlayerZoomDelegate(private val player: VideoPlayerActivity) {
 
                 val target = scaleTargetView ?: return true
                 val prevScale = currentScale
-                val newScale = (currentScale * factor).coerceIn(0.75f, 5.5f)
+                val newScale = (currentScale * factor).coerceIn(0.20f, 5.5f)
                 val scaleRatio = newScale / prevScale
                 currentScale = newScale
 
@@ -101,11 +106,19 @@ class VideoPlayerZoomDelegate(private val player: VideoPlayerActivity) {
                 currentTransX += deltaX + (focusX - centerX) * (1f - scaleRatio)
                 currentTransY += deltaY + (focusY - centerY) * (1f - scaleRatio)
 
-                val maxTransX = ((targetW * (currentScale - 1f)) / 2f).coerceAtLeast(0f)
-                val maxTransY = ((targetH * (currentScale - 1f)) / 2f).coerceAtLeast(0f)
+                val maxTransX = if (currentScale >= 1.0f) {
+                    ((targetW * (currentScale - 1f)) / 2f).coerceAtLeast(0f)
+                } else {
+                    ((targetW * (1f - currentScale)) / 2f).coerceAtLeast(0f)
+                }
+                val maxTransY = if (currentScale >= 1.0f) {
+                    ((targetH * (currentScale - 1f)) / 2f).coerceAtLeast(0f)
+                } else {
+                    ((targetH * (1f - currentScale)) / 2f).coerceAtLeast(0f)
+                }
 
-                val boundedTransX = if (maxTransX > 0f) currentTransX.coerceIn(-maxTransX * 1.25f, maxTransX * 1.25f) else 0f
-                val boundedTransY = if (maxTransY > 0f) currentTransY.coerceIn(-maxTransY * 1.25f, maxTransY * 1.25f) else 0f
+                val boundedTransX = currentTransX.coerceIn(-maxTransX * 1.25f, maxTransX * 1.25f)
+                val boundedTransY = currentTransY.coerceIn(-maxTransY * 1.25f, maxTransY * 1.25f)
                 currentTransX = boundedTransX
                 currentTransY = boundedTransY
 
@@ -130,37 +143,44 @@ class VideoPlayerZoomDelegate(private val player: VideoPlayerActivity) {
                 val targetW = target.width.takeIf { it > 0 }?.toFloat() ?: player.touchDelegate.screenConfig.xRange.toFloat()
                 val targetH = target.height.takeIf { it > 0 }?.toFloat() ?: player.touchDelegate.screenConfig.yRange.toFloat()
 
-                if (currentScale <= 1.05f) {
-                    currentScale = 1.0f
-                    currentTransX = 0f
-                    currentTransY = 0f
-                    target.animate()
-                        .scaleX(1.0f)
-                        .scaleY(1.0f)
-                        .translationX(0f)
-                        .translationY(0f)
-                        .setDuration(200L)
-                        .start()
-                    player.overlayDelegate.showInfo("100%", 800)
-                    player.window.decorView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                val targetScale = when {
+                    currentScale in 0.97f..1.03f -> 1.0f
+                    else -> currentScale.coerceIn(MIN_SCALE, MAX_SCALE)
+                }
+
+                currentScale = targetScale
+
+                val (targetTransX, targetTransY) = if (targetScale == 1.0f) {
+                    0f to 0f
                 } else {
-                    val clampedScale = currentScale.coerceIn(1.0f, 5.0f)
-                    currentScale = clampedScale
-                    val maxTransX = ((targetW * (clampedScale - 1f)) / 2f).coerceAtLeast(0f)
-                    val maxTransY = ((targetH * (clampedScale - 1f)) / 2f).coerceAtLeast(0f)
-                    val clampedTransX = currentTransX.coerceIn(-maxTransX, maxTransX)
-                    val clampedTransY = currentTransY.coerceIn(-maxTransY, maxTransY)
-                    currentTransX = clampedTransX
-                    currentTransY = clampedTransY
-                    target.animate()
-                        .scaleX(clampedScale)
-                        .scaleY(clampedScale)
-                        .translationX(clampedTransX)
-                        .translationY(clampedTransY)
-                        .setDuration(150L)
-                        .start()
-                    val percentage = (clampedScale * 100).roundToInt()
-                    player.overlayDelegate.showInfo("$percentage%", 800)
+                    val maxTransX = if (targetScale >= 1.0f) {
+                        ((targetW * (targetScale - 1f)) / 2f).coerceAtLeast(0f)
+                    } else {
+                        ((targetW * (1f - targetScale)) / 2f).coerceAtLeast(0f)
+                    }
+                    val maxTransY = if (targetScale >= 1.0f) {
+                        ((targetH * (targetScale - 1f)) / 2f).coerceAtLeast(0f)
+                    } else {
+                        ((targetH * (1f - targetScale)) / 2f).coerceAtLeast(0f)
+                    }
+                    currentTransX.coerceIn(-maxTransX, maxTransX) to currentTransY.coerceIn(-maxTransY, maxTransY)
+                }
+
+                currentTransX = targetTransX
+                currentTransY = targetTransY
+
+                target.animate()
+                    .scaleX(targetScale)
+                    .scaleY(targetScale)
+                    .translationX(targetTransX)
+                    .translationY(targetTransY)
+                    .setDuration(150L)
+                    .start()
+
+                val percentage = (targetScale * 100).roundToInt()
+                player.overlayDelegate.showInfo("$percentage%", 800)
+                if (targetScale == 1.0f) {
+                    player.window.decorView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                 }
             }
         }
@@ -211,6 +231,42 @@ class VideoPlayerZoomDelegate(private val player: VideoPlayerActivity) {
                 it.scaleY = 1.0f
                 it.translationX = 0f
                 it.translationY = 0f
+            }
+        }
+    }
+
+    fun updateZoomOnLayoutChange() {
+        val target = player.videoLayout?.findViewById<FrameLayout>(R.id.player_surface_frame) ?: player.videoLayout ?: return
+        target.post {
+            if (target.width <= 0 || target.height <= 0) return@post
+            target.pivotX = target.width / 2f
+            target.pivotY = target.height / 2f
+
+            if (isZoomed) {
+                val targetW = target.width.toFloat()
+                val targetH = target.height.toFloat()
+                val maxTransX = if (currentScale >= 1.0f) {
+                    ((targetW * (currentScale - 1f)) / 2f).coerceAtLeast(0f)
+                } else {
+                    ((targetW * (1f - currentScale)) / 2f).coerceAtLeast(0f)
+                }
+                val maxTransY = if (currentScale >= 1.0f) {
+                    ((targetH * (currentScale - 1f)) / 2f).coerceAtLeast(0f)
+                } else {
+                    ((targetH * (1f - currentScale)) / 2f).coerceAtLeast(0f)
+                }
+                currentTransX = currentTransX.coerceIn(-maxTransX, maxTransX)
+                currentTransY = currentTransY.coerceIn(-maxTransY, maxTransY)
+
+                target.scaleX = currentScale
+                target.scaleY = currentScale
+                target.translationX = currentTransX
+                target.translationY = currentTransY
+            } else {
+                target.scaleX = 1.0f
+                target.scaleY = 1.0f
+                target.translationX = 0f
+                target.translationY = 0f
             }
         }
     }

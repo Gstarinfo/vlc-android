@@ -591,7 +591,7 @@ open class VideoPlayerActivity : AppCompatActivity(), PlaybackService.Callback, 
         videoLayout = findViewById(R.id.video_layout)
         videoLayout?.addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
             if (left != oldLeft || top != oldTop || right != oldRight || bottom != oldBottom) {
-                resetZoom(animate = false)
+                updateZoom()
             }
             updateSubtitlePosition()
         }
@@ -927,6 +927,7 @@ open class VideoPlayerActivity : AppCompatActivity(), PlaybackService.Callback, 
         overlayDelegate.updateTitleConstraints()
         overlayDelegate.rotateBookmarks()
         screenshotDelegate.hide()
+        updateZoom()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -1228,6 +1229,7 @@ open class VideoPlayerActivity : AppCompatActivity(), PlaybackService.Callback, 
     fun getDefaultSubtitleOffsetRatio(): Float = subtitleDelegate.getDefaultSubtitleOffsetRatio()
     fun resetSubtitleUserOffset(animated: Boolean = true) = subtitleDelegate.resetSubtitleUserOffset(animated)
     fun resetZoom(animate: Boolean = false) = zoomDelegate.resetZoom(animate)
+    fun updateZoom() = zoomDelegate.updateZoomOnLayoutChange()
 
     private fun cleanUI() {
 
@@ -2226,6 +2228,7 @@ open class VideoPlayerActivity : AppCompatActivity(), PlaybackService.Callback, 
             intent.putExtra(PLAY_EXTRA_FROM_START, fromStart)
         }
         service?.let { service ->
+            resetZoom(animate = false)
             isPlaying = false
             var title: String? = null
             var fromStart = settings.getString(KEY_VIDEO_CONFIRM_RESUME, "0") == "1"
